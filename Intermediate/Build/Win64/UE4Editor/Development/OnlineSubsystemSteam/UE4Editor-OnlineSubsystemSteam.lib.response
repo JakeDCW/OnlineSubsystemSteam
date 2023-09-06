@@ -1,0 +1,13 @@
+/NOLOGO
+/errorReport:prompt
+/MACHINE:x64
+/SUBSYSTEM:WINDOWS
+/DEF
+/NAME:"UE4Editor-OnlineSubsystemSteam.dll"
+/IGNORE:4221
+/NODEFAULTLIB
+"D:\Perforce\UDG\UE4Editor\Engine\Intermediate\Build\Win64\UE4Editor\Development\Engine\SharedPCH.Engine.h.obj"
+"D:\Perforce\UDG\UE4Editor\Engine\Plugins\Online\OnlineSubsystemSteam\Intermediate\Build\Win64\UE4Editor\Development\OnlineSubsystemSteam\Module.OnlineSubsystemSteam.cpp.obj"
+"D:\Perforce\UDG\UE4Editor\Engine\Plugins\Online\OnlineSubsystemSteam\Intermediate\Build\Win64\UE4Editor\Development\OnlineSubsystemSteam\Module.OnlineSubsystemSteam.gen.cpp.obj"
+"D:\Perforce\UDG\UE4Editor\Engine\Intermediate\Build\Win64\UE4Editor\Development\PCLaunch.rc.res"
+/OUT:"D:\Perforce\UDG\UE4Editor\Engine\Plugins\Online\OnlineSubsystemSteam\Intermediate\Build\Win64\UE4Editor\Development\OnlineSubsystemSteam\UE4Editor-OnlineSubsystemSteam.lib"
