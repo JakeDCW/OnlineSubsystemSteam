@@ -1,12 +1,13 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "IPAddressSteam.h"
+#include "Algo/Reverse.h"
 
 TArray<uint8> FInternetAddrSteam::GetRawIp() const
 {
 	TArray<uint8> RawAddressArray;
-	const uint8* SteamIdWalk = SteamId->GetBytes();
-	while (RawAddressArray.Num() < SteamId->GetSize())
+	const uint8* SteamIdWalk = SteamId.GetBytes();
+	while (RawAddressArray.Num() < SteamId.GetSize())
 	{
 		RawAddressArray.Add(*SteamIdWalk);
 		++SteamIdWalk;
@@ -38,7 +39,7 @@ void FInternetAddrSteam::SetRawIp(const TArray<uint8>& RawAddr)
 		NewSteamId |= (uint64)WorkingArray[i] << (i * 8);
 	}
 
-	SteamId = FUniqueNetIdSteam::Create(NewSteamId);
+	SteamId = FUniqueNetIdSteam(NewSteamId);
 }
 
 /**
@@ -56,7 +57,7 @@ void FInternetAddrSteam::SetIp(const TCHAR* InAddr, bool& bIsValid)
 	FString SteamIPAddrStr;
 	if (InAddrStr.StartsWith(STEAM_URL_PREFIX))
 	{
-		SteamIPAddrStr = InAddrStr.Mid(UE_ARRAY_COUNT(STEAM_URL_PREFIX) - 1);
+		SteamIPAddrStr = InAddrStr.Mid(ARRAY_COUNT(STEAM_URL_PREFIX) - 1);
 	}
 	else
 	{
@@ -70,7 +71,7 @@ void FInternetAddrSteam::SetIp(const TCHAR* InAddr, bool& bIsValid)
 		const uint64 Id = FCString::Atoi64(*SteamIPStr);
 		if (Id != 0)
 		{
-			SteamId = FUniqueNetIdSteam::Create(Id);
+			SteamId = FUniqueNetIdSteam(Id);
 			const int32 Channel = FCString::Atoi(*SteamChannelStr);
 			if (Channel != 0 || SteamChannelStr == "0")
 			{
@@ -84,12 +85,12 @@ void FInternetAddrSteam::SetIp(const TCHAR* InAddr, bool& bIsValid)
 		const uint64 Id = FCString::Atoi64(*SteamIPAddrStr);
 		if (Id != 0)
 		{
-			SteamId = FUniqueNetIdSteam::Create(Id);
+			SteamId = FUniqueNetIdSteam(Id);
 			bIsValid = true;
 		}
 
 		SteamChannel = 0;
 	}
 
-	bIsValid = bIsValid && SteamId->IsValid();
+	bIsValid = bIsValid && SteamId.IsValid();
 }
