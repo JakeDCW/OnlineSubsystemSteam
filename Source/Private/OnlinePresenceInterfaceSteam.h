@@ -1,11 +1,11 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
+#include "CoreMinimal.h"
+#include "OnlineSubsystemSteamTypes.h"
 #include "Interfaces/OnlinePresenceInterface.h"
 #include "OnlineSubsystemSteamPackage.h"
-
-class FUniqueNetIdSteam;
 
 class FOnlineUserPresenceSteam : public FOnlineUserPresence
 {
@@ -34,10 +34,10 @@ class FOnlinePresenceSteam : public IOnlinePresence
 	FOnlinePresenceSteam();
 
 	/** All cached presence data we ever get */
-	TUniqueNetIdMap<TSharedRef<FOnlineUserPresenceSteam>> CachedPresence;
+	TMap<FUniqueNetIdSteam, TSharedRef<FOnlineUserPresenceSteam> > CachedPresence;
 
 	/** Delegates for non-friend users that were called with QueryPresence */
-	TUniqueNetIdMap<TSharedRef<const FOnPresenceTaskCompleteDelegate>> DelayedPresenceDelegates;
+	TMap<FUniqueNetIdSteam, TSharedRef<const FOnPresenceTaskCompleteDelegate> > DelayedPresenceDelegates;
 
 PACKAGE_SCOPE:
 	FOnlinePresenceSteam(class FOnlineSubsystemSteam* InSubsystem);

@@ -1,23 +1,19 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
+#include "CoreMinimal.h"
 #include "OnlineSubsystemSteam.h"
 #include "OnlineSubsystemSteamTypes.h"
 #include "PacketHandler.h"
 #include "HandlerComponentFactory.h"
 #include "OnlineAuthHandlerSteam.generated.h"
 
-struct FBitReader;
-struct FBitWriter;
-struct FOutPacketTraits;
-
 class FSteamAuthHandlerComponent : public HandlerComponent
 {
 public:
 	FSteamAuthHandlerComponent();
 	virtual ~FSteamAuthHandlerComponent();
-	virtual void CountBytes(FArchive& Ar) const override;
 	virtual void Initialize() override;
 	virtual void NotifyHandshakeBegin() override;
 
@@ -25,6 +21,9 @@ public:
 
 	virtual void Incoming(FBitReader& Packet) override;
 	virtual void Outgoing(FBitWriter& Packet, FOutPacketTraits& Traits) override;
+
+	virtual void IncomingConnectionless(const FString& Address, FBitReader& Packet) override {}
+	virtual void OutgoingConnectionless(const FString& Address, FBitWriter& Packet, FOutPacketTraits& Traits) override {}
 
 	virtual void Tick(float DeltaTime) override;
 
@@ -55,7 +54,7 @@ protected:
 
 	FString UserTicket;
 	uint32 TicketHandle;
-	FUniqueNetIdSteamRef SteamId;
+	FUniqueNetIdSteam SteamId;
 };
 
 UCLASS()

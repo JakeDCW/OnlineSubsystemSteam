@@ -1,7 +1,7 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "OnlineAuthInterfaceSteam.h"
-#include "OnlineAuthInterfaceUtilsSteam.h"
+#include "OnlineSubsystemSteam.h"
 #include "OnlineSubsystemSteamTypes.h"
 #include "OnlineSubsystemUtils.h"
 
@@ -10,21 +10,19 @@
 #include "GameFramework/GameSession.h"
 #include "GameFramework/PlayerState.h"
 #include "GameFramework/PlayerController.h"
+#include "Engine/World.h"
+#include "Engine/Engine.h"
 
 // Determining if we need to be disabled or not
 #include "Misc/ConfigCacheIni.h"
-#include "PacketHandler.h"
-#include <steam/isteamgameserver.h>
-#include <steam/isteamuser.h>
 
 // Steam tells us this number in documentation, however there's no define within the SDK
 #define STEAM_AUTH_MAX_TICKET_LENGTH_IN_BYTES 1024
 
-FOnlineAuthSteam::FOnlineAuthSteam(FOnlineSubsystemSteam* InSubsystem, FOnlineAuthSteamUtilsPtr InAuthUtils) :
+FOnlineAuthSteam::FOnlineAuthSteam(FOnlineSubsystemSteam* InSubsystem) :
 	SteamUserPtr(SteamUser()),
 	SteamServerPtr(SteamGameServer()),
 	SteamSubsystem(InSubsystem),
-	AuthUtils(InAuthUtils),
 	bEnabled(false),
 	bBadKey(false),
 	bReuseKey(false),
@@ -34,31 +32,17 @@ FOnlineAuthSteam::FOnlineAuthSteam(FOnlineSubsystemSteam* InSubsystem, FOnlineAu
 	bNeverSendKey(false),
 	bSendBadId(false)
 {
-	const FString SteamModuleName(TEXT("SteamAuthComponentModuleInterface"));
-	if (!PacketHandler::DoesAnyProfileHaveComponent(SteamModuleName))
-	{
-		// Pull the components to see if there's anything we can use.
-		TArray<FString> ComponentList;
-		GConfig->GetArray(TEXT("PacketHandlerComponents"), TEXT("Components"), ComponentList, GEngineIni);
+	TArray<FString> ComponentList;
+	GConfig->GetArray(TEXT("PacketHandlerComponents"), TEXT("Components"), ComponentList, GEngineIni);
 
-		// Check if Steam Auth is enabled anywhere.
-		for (FString CompStr : ComponentList)
+	for (FString CompStr : ComponentList)
+	{
+		if (CompStr.Contains(TEXT("SteamAuthComponentModuleInterface")))
 		{
-			if (CompStr.Contains(SteamModuleName))
-			{
-				bEnabled = true;
-				break;
-			}
+			UE_LOG_ONLINE(Log, TEXT("AUTH: Steam Auth Enabled"));
+			bEnabled = true;
+			return;
 		}
-	}
-	else
-	{
-		bEnabled = true;
-	}
-
-	if (bEnabled)
-	{
-		UE_LOG_ONLINE(Log, TEXT("AUTH: Steam Auth Enabled"));
 	}
 }
 
@@ -66,7 +50,6 @@ FOnlineAuthSteam::FOnlineAuthSteam() :
 	SteamUserPtr(nullptr),
 	SteamServerPtr(nullptr),
 	SteamSubsystem(nullptr),
-	AuthUtils(nullptr),
 	bEnabled(false),
 	bBadKey(false),
 	bReuseKey(false),
@@ -80,6 +63,8 @@ FOnlineAuthSteam::FOnlineAuthSteam() :
 
 FOnlineAuthSteam::~FOnlineAuthSteam()
 {
+	OverrideFailureDelegate.Unbind();
+	OnAuthenticationResultDelegate.Unbind();
 	RevokeAllTickets();
 }
 
@@ -97,7 +82,7 @@ FString FOnlineAuthSteam::GetAuthTicket(uint32& AuthTokenHandle)
 	{
 		uint8 AuthToken[STEAM_AUTH_MAX_TICKET_LENGTH_IN_BYTES];
 		uint32 AuthTokenSize = 0;
-		AuthTokenHandle = SteamUserPtr->GetAuthSessionTicket(AuthToken, UE_ARRAY_COUNT(AuthToken), &AuthTokenSize);
+		AuthTokenHandle = SteamUserPtr->GetAuthSessionTicket(AuthToken, ARRAY_COUNT(AuthToken), &AuthTokenSize);
 		if (AuthTokenHandle != k_HAuthTicketInvalid && AuthTokenSize > 0)
 		{
 			ResultToken = BytesToHex(AuthToken, AuthTokenSize);
@@ -114,32 +99,31 @@ FString FOnlineAuthSteam::GetAuthTicket(uint32& AuthTokenHandle)
 
 FOnlineAuthSteam::SharedAuthUserSteamPtr FOnlineAuthSteam::GetUser(const FUniqueNetId& InUserId)
 {
-	if (SharedAuthUserSteamPtr* AuthUserPtr = AuthUsers.Find(InUserId.AsShared()))
+	const FUniqueNetIdSteam& SteamUserId = static_cast<const FUniqueNetIdSteam&>(InUserId);
+	if (AuthUsers.Contains(SteamUserId))
 	{
-		return *AuthUserPtr;
+		return AuthUsers[SteamUserId];
 	}
-	else
-	{
-		UE_LOG_ONLINE(Warning, TEXT("AUTH: Trying to fetch user %s entry but the user does not exist"), *InUserId.ToString());
-		return nullptr;
-	}
+
+	UE_LOG_ONLINE(Warning, TEXT("AUTH: Trying to fetch user %s entry but the user does not exist"), *SteamUserId.ToString());
+	return nullptr;
 }
 
 FOnlineAuthSteam::SharedAuthUserSteamPtr FOnlineAuthSteam::GetOrCreateUser(const FUniqueNetId& InUserId)
 {
-	if (SharedAuthUserSteamPtr* AuthUserPtr = AuthUsers.Find(InUserId.AsShared()))
+	const FUniqueNetIdSteam& SteamUserId = static_cast<const FUniqueNetIdSteam&>(InUserId);
+	if (!AuthUsers.Contains(SteamUserId))
 	{
-		return *AuthUserPtr;
+		SharedAuthUserSteamPtr TargetUser = MakeShareable(new FSteamAuthUser);
+		AuthUsers.Add(SteamUserId, TargetUser);
 	}
-	
-	SharedAuthUserSteamPtr AuthUserPtr = MakeShareable(new FSteamAuthUser);
-	AuthUsers.Add(InUserId.AsShared(), AuthUserPtr);
-	return AuthUserPtr;
+
+	return AuthUsers[SteamUserId];
 }
 
 bool FOnlineAuthSteam::AuthenticateUser(const FUniqueNetId& InUserId)
 {
-	const FUniqueNetIdSteam& SteamUserId = FUniqueNetIdSteam::Cast(InUserId);
+	const FUniqueNetIdSteam& SteamUserId = static_cast<const FUniqueNetIdSteam&>(InUserId);
 	if (SteamUserId.IsValid() && bEnabled)
 	{
 		// Create the user in the list if we don't already have them.
@@ -187,7 +171,7 @@ bool FOnlineAuthSteam::AuthenticateUser(const FUniqueNetId& InUserId)
 
 		uint8 AuthTokenRaw[STEAM_AUTH_MAX_TICKET_LENGTH_IN_BYTES];
 		int32 TicketSize = HexToBytes(TargetUser->RecvTicket, AuthTokenRaw);
-		CSteamID UserCSteamId = SteamUserId;
+		CSteamID UserCSteamId = CSteamID(*(uint64*)SteamUserId.GetBytes());
 
 		if (IsRunningDedicatedServer())
 		{
@@ -234,7 +218,7 @@ bool FOnlineAuthSteam::AuthenticateUser(const FUniqueNetId& InUserId)
 
 void FOnlineAuthSteam::EndAuthentication(const FUniqueNetId& InUserId)
 {
-	const FUniqueNetIdSteam& SteamId = FUniqueNetIdSteam::Cast(InUserId);
+	const FUniqueNetIdSteam& SteamId = static_cast<const FUniqueNetIdSteam&>(InUserId);
 	if (SteamId.IsValid())
 	{
 		CSteamID UserCSteamId = CSteamID(*(uint64*)SteamId.GetBytes());
@@ -277,7 +261,7 @@ void FOnlineAuthSteam::RevokeAllTickets()
 	// Also cleans up any other previous auth data.
 	for (SteamAuthentications::TIterator Users(AuthUsers); Users; ++Users)
 	{
-		EndAuthentication(*Users->Key);
+		EndAuthentication(Users->Key);
 	}
 
 	// Clean up all handles if they haven't been cleared already
@@ -295,7 +279,7 @@ void FOnlineAuthSteam::RevokeAllTickets()
 
 void FOnlineAuthSteam::MarkPlayerForKick(const FUniqueNetId& InUserId)
 {
-	const FUniqueNetIdSteam& SteamId = FUniqueNetIdSteam::Cast(InUserId);
+	const FUniqueNetIdSteam& SteamId = static_cast<const FUniqueNetIdSteam&>(InUserId);
 	SharedAuthUserSteamPtr TargetUser = GetUser(SteamId);
 	if (TargetUser.IsValid())
 	{
@@ -307,7 +291,7 @@ void FOnlineAuthSteam::MarkPlayerForKick(const FUniqueNetId& InUserId)
 bool FOnlineAuthSteam::KickPlayer(const FUniqueNetId& InUserId, bool bSuppressFailure)
 {
 	bool bKickSuccess = false;
-	const FUniqueNetIdSteam& SteamId = FUniqueNetIdSteam::Cast(InUserId);
+	const FUniqueNetIdSteam& SteamId = static_cast<const FUniqueNetIdSteam&>(InUserId);
 	UWorld* World = (SteamSubsystem != nullptr) ? GetWorldForOnline(SteamSubsystem->GetInstanceName()) : nullptr;
 
 	if (SteamUserPtr != nullptr && SteamUserPtr->GetSteamID() == SteamId)
@@ -320,9 +304,9 @@ bool FOnlineAuthSteam::KickPlayer(const FUniqueNetId& InUserId, bool bSuppressFa
 	}
 
 	// If we are overridden, respect that.
-	if (AuthUtils.IsValid() && AuthUtils->OverrideFailureDelegate.IsBound())
+	if (OverrideFailureDelegate.IsBound())
 	{
-		AuthUtils->OverrideFailureDelegate.Execute(InUserId);
+		OverrideFailureDelegate.Execute(InUserId);
 		RemoveUser(InUserId);
 		return true;
 	}
@@ -342,8 +326,8 @@ bool FOnlineAuthSteam::KickPlayer(const FUniqueNetId& InUserId, bool bSuppressFa
 		for (FConstPlayerControllerIterator Itr = World->GetPlayerControllerIterator(); Itr; ++Itr)
 		{
 			APlayerController* PC = Itr->Get();
-			if (PC && PC->PlayerState != nullptr && PC->PlayerState->GetUniqueId().IsValid() &&
-				*(PC->PlayerState->GetUniqueId().GetUniqueNetId()) == InUserId)
+			if (PC && PC->PlayerState != nullptr && PC->PlayerState->UniqueId.IsValid() &&
+				*(PC->PlayerState->UniqueId.GetUniqueNetId()) == InUserId)
 			{
 				const FText AuthKickReason = NSLOCTEXT("NetworkErrors", "HostClosedConnection", "Host closed the connection.");
 				bKickSuccess = GameMode->GameSession->KickPlayer(PC, AuthKickReason);
@@ -369,16 +353,18 @@ bool FOnlineAuthSteam::KickPlayer(const FUniqueNetId& InUserId, bool bSuppressFa
 
 void FOnlineAuthSteam::RemoveUser(const FUniqueNetId& TargetUser)
 {
+	const FUniqueNetIdSteam& SteamId = static_cast<const FUniqueNetIdSteam&>(TargetUser);
+
 	if (!IsServer() || !bEnabled)
 	{
 		return;
 	}
 
-	if (AuthUsers.Contains(TargetUser.AsShared()))
+	if (AuthUsers.Contains(SteamId))
 	{
-		UE_LOG_ONLINE(Verbose, TEXT("AUTH: Removing user %s"), *TargetUser.ToString());
+		UE_LOG_ONLINE(Verbose, TEXT("AUTH: Removing user %s"), *SteamId.ToString());
 		EndAuthentication(TargetUser);
-		AuthUsers.Remove(TargetUser.AsShared());
+		AuthUsers.Remove(SteamId);
 	}
 }
 
@@ -395,7 +381,7 @@ bool FOnlineAuthSteam::Tick(float DeltaTime)
 		if (It->Value.IsValid())
 		{
 			SharedAuthUserSteamPtr CurUser = It->Value;
-			const FUniqueNetId& CurUserId = *It->Key;
+			const FUniqueNetIdSteam& CurUserId = It->Key;
 
 			// Kick any players that have failed authentication.
 			if (EnumHasAnyFlags(CurUser->Status, ESteamAuthStatus::FailKick))
@@ -497,7 +483,7 @@ void FOnlineAuthSteam::OnAuthResult(const FUniqueNetId& TargetId, int32 Response
 		return;
 	}
 
-	const FUniqueNetIdSteam& SteamId = FUniqueNetIdSteam::Cast(TargetId);
+	const FUniqueNetIdSteam& SteamId = static_cast<const FUniqueNetIdSteam&>(TargetId);
 	if (!SteamId.IsValid())
 	{
 		UE_LOG_ONLINE(Warning, TEXT("AUTH: Auth Callback cannot process invalid users!"));
@@ -527,16 +513,14 @@ void FOnlineAuthSteam::OnAuthResult(const FUniqueNetId& TargetId, int32 Response
 	{
 		TargetUser->Status |= ESteamAuthStatus::AuthFail;
 	}
-	ExecuteResultDelegate(SteamId, bDidAuthSucceed, (ESteamAuthResponseCode)Response);
+	ExecuteResultDelegate(SteamId, bDidAuthSucceed);
 }
 
-void FOnlineAuthSteam::ExecuteResultDelegate(const FUniqueNetId& TargetId, bool bWasSuccessful, ESteamAuthResponseCode ResponseCode)
+void FOnlineAuthSteam::ExecuteResultDelegate(const FUniqueNetId& TargetId, bool bWasSuccessful)
 {
-	if (AuthUtils.IsValid())
+	if (OnAuthenticationResultDelegate.IsBound())
 	{
-		// Fire both of these delegates.
-		AuthUtils->OnAuthenticationResultDelegate.ExecuteIfBound(TargetId, bWasSuccessful);
-		AuthUtils->OnAuthenticationResultWithCodeDelegate.ExecuteIfBound(TargetId, bWasSuccessful, ResponseCode);
+		OnAuthenticationResultDelegate.Execute(TargetId, bWasSuccessful);
 	}
 }
 
@@ -547,11 +531,3 @@ void FOnlineAuthSteam::FSteamAuthUser::SetKey(const FString& NewKey)
 		RecvTicket = NewKey;
 	}
 }
-
-// Implementation of the public helper to determine if the Auth interface is enabled.
-bool FOnlineAuthUtilsSteam::IsSteamAuthEnabled() const
-{
-	const FOnlineSubsystemSteam* SteamSub = static_cast<const FOnlineSubsystemSteam*>(IOnlineSubsystem::Get(STEAM_SUBSYSTEM));
-	return (SteamSub && SteamSub->GetAuthInterface().IsValid() && SteamSub->GetAuthInterface()->IsSessionAuthEnabled());
-}
-

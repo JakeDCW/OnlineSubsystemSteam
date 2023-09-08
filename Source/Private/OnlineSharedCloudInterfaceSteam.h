@@ -1,9 +1,14 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
  
 #pragma once
 
+#include "CoreMinimal.h"
+#include "OnlineSubsystemTypes.h"
+#include "OnlineSubsystemSteamTypes.h"
+#include "OnlineAsyncTaskManagerSteam.h"
 #include "OnlineUserCloudInterfaceSteam.h"
 #include "Interfaces/OnlineSharedCloudInterface.h"
+#include "OnlineSubsystemSteamPackage.h"
 
 /** 
  *  Async task for reading/downloading a single publicly shared cloud file
@@ -72,7 +77,10 @@ private:
 	bool bInit;
 
 	/** Hidden on purpose */
-	FOnlineAsyncTaskSteamWriteSharedFile() = delete;
+	FOnlineAsyncTaskSteamWriteSharedFile() :
+		bInit(false)
+	{
+	}
 
 PACKAGE_SCOPE:
 
@@ -152,7 +160,7 @@ public:
 
 	// IOnlineSharedCloud
 	virtual bool GetSharedFileContents(const FSharedContentHandle& SharedHandle, TArray<uint8>& FileContents) override;
-	virtual bool ClearSharedFiles() override final;
+	virtual bool ClearSharedFiles() override;
 	virtual bool ClearSharedFile(const FSharedContentHandle& SharedHandle) override;
 	virtual bool ReadSharedFile(const FSharedContentHandle& SharedHandle) override;
 	virtual bool WriteSharedFile(const FUniqueNetId& UserId, const FString& Filename, TArray<uint8>& FileContents) override;

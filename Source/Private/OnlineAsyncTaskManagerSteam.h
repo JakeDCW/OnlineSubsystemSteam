@@ -1,8 +1,9 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
-#include "OnlineSubsystemSteamPrivate.h" // IWYU pragma: keep
+#include "CoreMinimal.h"
+#include "OnlineSubsystemSteamPrivate.h"
 #include "OnlineAsyncTaskManager.h"
 #include "OnlineSubsystemSteamPackage.h"
 
@@ -78,6 +79,11 @@ private:
 	STEAM_CALLBACK(FOnlineAsyncTaskManagerSteam, OnLobbyEnter, LobbyEnter_t, OnLobbyEnterCallback);
 	/** Delegate registered with Steam to trigger when a lobby chat update occurs (usually users joining/leaving lobby) */
 	STEAM_CALLBACK(FOnlineAsyncTaskManagerSteam, OnLobbyChatUpdate, LobbyChatUpdate_t, OnLobbyChatUpdateCallback);
+
+	/** Delegate registered with Steam to trigger when a friends' status changes */
+	STEAM_CALLBACK(FOnlineAsyncTaskManagerSteam, OnPersonaStateChange, PersonaStateChange_t, OnPersonaStateChangeCallback);
+	/** Delegate registered with Steam to trigger when an avatar is loaded in from a previous GetLargeFriendAvatar() call */
+	STEAM_CALLBACK(FOnlineAsyncTaskManagerSteam, OnAvatarImageLoaded, AvatarImageLoaded_t, OnAvatarImageLoadedCallback);
 	/** 
      * Delegate registered with Steam to trigger when a lobby update occurs
 	 * As host (or any client joined to the lobby), any call to SetLobbyData will trigger this
@@ -125,6 +131,8 @@ public:
 		OnLobbyInviteAcceptedCallback(this, &FOnlineAsyncTaskManagerSteam::OnLobbyInviteAccepted),
 		OnLobbyEnterCallback(this, &FOnlineAsyncTaskManagerSteam::OnLobbyEnter),
 		OnLobbyChatUpdateCallback(this, &FOnlineAsyncTaskManagerSteam::OnLobbyChatUpdate),
+		OnPersonaStateChangeCallback(this, &FOnlineAsyncTaskManagerSteam::OnPersonaStateChange),
+		OnAvatarImageLoadedCallback(this, &FOnlineAsyncTaskManagerSteam::OnAvatarImageLoaded),
 		OnLobbyDataUpdateCallback(this, &FOnlineAsyncTaskManagerSteam::OnLobbyDataUpdate),
 		OnUserStatsReceivedCallback(this, &FOnlineAsyncTaskManagerSteam::OnUserStatsReceived),
 		OnUserStatsStoredCallback(this, &FOnlineAsyncTaskManagerSteam::OnUserStatsStored),

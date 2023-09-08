@@ -1,11 +1,14 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
-#include "OnlineSubsystemPackage.h"
+#include "CoreMinimal.h"
+#include "UObject/CoreOnline.h"
 #include "OnlineSubsystemSteamTypes.h"
+#include "OnlineStats.h"
 #include "Interfaces/OnlineLeaderboardInterface.h"
 #include "Interfaces/OnlineAchievementsInterface.h"
+#include "OnlineSubsystemSteamPackage.h"
 
 class FOnlineSubsystemSteam;
 
@@ -17,16 +20,19 @@ struct FUserStatsStateSteam
 {
 private:
 	/** Hidden on purpose */
-	FUserStatsStateSteam() = delete;
+	FUserStatsStateSteam() :
+		UserId(0),
+		StatsState(EOnlineAsyncTaskState::NotStarted)
+	{}
 
 public:
 	/** User Id */
-	FUniqueNetIdSteamRef UserId;
+	const FUniqueNetIdSteam UserId;
 	/** Current stats state for this user */
 	EOnlineAsyncTaskState::Type StatsState;
 
 	FUserStatsStateSteam(const FUniqueNetIdSteam& InUserId, EOnlineAsyncTaskState::Type InState) :
-		UserId(InUserId.AsShared()),
+		UserId(InUserId),
 		StatsState(InState)
 	{
 	}
@@ -133,14 +139,28 @@ public:
 	virtual ~FOnlineLeaderboardsSteam() {};
 
 	// IOnlineLeaderboards
-	virtual bool ReadLeaderboards(const TArray< FUniqueNetIdRef >& Players, FOnlineLeaderboardReadRef& ReadObject) override;
+	virtual bool ReadLeaderboards(const TArray< TSharedRef<const FUniqueNetId> >& Players, FOnlineLeaderboardReadRef& ReadObject) override;
 	virtual bool ReadLeaderboardsForFriends(int32 LocalUserNum, FOnlineLeaderboardReadRef& ReadObject) override;
 	virtual bool ReadLeaderboardsAroundRank(int32 Rank, uint32 Range, FOnlineLeaderboardReadRef& ReadObject) override;
-	virtual bool ReadLeaderboardsAroundUser(FUniqueNetIdRef Player, uint32 Range, FOnlineLeaderboardReadRef& ReadObject) override;
+	virtual bool ReadLeaderboardsAroundUser(TSharedRef<const FUniqueNetId> Player, uint32 Range, FOnlineLeaderboardReadRef& ReadObject) override;
 	virtual void FreeStats(FOnlineLeaderboardRead& ReadObject) override;
 	virtual bool WriteLeaderboards(const FName& SessionName, const FUniqueNetId& Player, FOnlineLeaderboardWrite& WriteObject) override;
 	virtual bool FlushLeaderboards(const FName& SessionName) override;
 	virtual bool WriteOnlinePlayerRatings(const FName& SessionName, int32 LeaderboardId, const TArray<FOnlinePlayerScore>& PlayerScores) override;
+	virtual bool ReadCurrentStats(const TArray<FName>& StatNames, FOnlineStatsReadRef& ReadObject) override;
+	virtual bool ReadUserStats(const TArray<FName>& StatNames, FOnlineStatsReadRef& ReadObject, const FUniqueNetId& User) override;
+	virtual bool WriteCurrentStats(const TArray<FName>& StatNames, FOnlineStatsRef& WriteObject) override;
+	virtual bool UnlockAchievement(const FName& AchievementAPIName) override;
+	virtual bool UserHasAchievement(const FUniqueNetId& User, const FName& AchievementAPIName, bool& AchievedOut) override;
+	virtual bool ResetAllStats(bool ResetAchievementsAlso) override;
+	virtual bool IsDLCInstalled(uint32 DLCAppId) override;
+	virtual bool ReadLeaderboard(const FName& LeaderboardName, const TArray<TSharedRef<const FUniqueNetId>>& Users, FLOnlineLeaderboardReadRef& ReadObject, const int32 NumMetadata) override;
+	virtual bool ReadLeaderboard(const FName& LeaderboardName, const int32 RangeAroundCurrentUser, FLOnlineLeaderboardReadRef& ReadObject, const int32 NumMetadata) override;
+	virtual bool ReadLeaderboard(const FName& LeaderboardName, const int32 StartRank, const int32 EndRank, FLOnlineLeaderboardReadRef& ReadObject, const int32 NumMetadata) override;
+	virtual bool WriteLeaderboardScore(const FName& LeaderboardName, const int32 InNewScore, const ELeaderboardUpdateMethod::Type InUpdateMethod, const TArray<int32>& ScoreMetadata) override;
+	virtual FDateTime GetServerTime() override;
+	virtual FString GetAchievementName(const FName& AchievementAPIName) override;
+	virtual FString GetAchievementDescription(const FName& AchievementAPIName) override;
 };
 
 typedef TSharedPtr<FOnlineLeaderboardsSteam, ESPMode::ThreadSafe> FOnlineLeaderboardsSteamPtr;

@@ -1,12 +1,15 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
-#include "Interfaces/OnlineSessionDelegates.h"
-#include "OnlineSubsystemPackage.h"
+#include "CoreMinimal.h"
+#include "UObject/CoreOnline.h"
 #include "OnlineSubsystemSteamTypes.h"
+#include "Misc/ScopeLock.h"
+#include "OnlineKeyValuePair.h"
 #include "OnlineSessionSettings.h"
 #include "Interfaces/OnlineSessionInterface.h"
+#include "OnlineSubsystemSteamPackage.h"
 
 /** Async Task timeout value */
 #define ASYNC_TASK_TIMEOUT 15.0f
@@ -241,7 +244,7 @@ PACKAGE_SCOPE:
 	bool bSteamworksGameServerConnected;
 
 	/** CSteamId assigned on game server login (only valid if bSteamworksGameServerConnected is true) */
-	FUniqueNetIdSteamPtr GameServerSteamId;
+	TSharedPtr<FUniqueNetIdSteam> GameServerSteamId;
 
 	/** Has the GSPolicyResponse callback triggered */
 	bool bPolicyResponseReceived;
@@ -255,13 +258,13 @@ PACKAGE_SCOPE:
 		/** What kind of invite is this */
 		ESteamSession::Type PendingInviteType;
 		/** Lobby invite information */
-		FUniqueNetIdSteamRef LobbyId;
+		FUniqueNetIdSteam LobbyId;
 		/** Server invite information */
 		FString ServerIp;
 
 		FPendingInviteData() :
 			PendingInviteType(ESteamSession::None),
-			LobbyId(FUniqueNetIdSteam::EmptyId())
+			LobbyId(0)
 		{
 		}
 	};
@@ -270,13 +273,13 @@ PACKAGE_SCOPE:
 	FPendingInviteData PendingInvite;
 
 	/** List of lobby data that is available for parsing (READ/WRITE game thread READONLY online thread) */
-	TArray<FUniqueNetIdSteamRef> PendingSearchLobbyIds;
+	TArray<FUniqueNetIdSteam> PendingSearchLobbyIds;
 
 	/** Critical sections for thread safe operation of the lobby lists */
 	FCriticalSection JoinedLobbyLock;
 
 	/** List of lobbies this client is a member of */
-	TArray<FUniqueNetIdSteamRef> JoinedLobbyList;
+	TArray<FUniqueNetIdSteam> JoinedLobbyList;
 
 	FOnlineSessionSteam(class FOnlineSubsystemSteam* InSubsystem) :
 		SteamSubsystem(InSubsystem),
@@ -327,7 +330,7 @@ PACKAGE_SCOPE:
 	 *
 	 * @return pointer to the struct if found, NULL otherwise
 	 */
-	inline FNamedOnlineSession* GetNamedSessionFromLobbyId(const FUniqueNetIdSteam& LobbyId)
+	inline FNamedOnlineSession* GetNamedSessionFromLobbyId(FUniqueNetIdSteam& LobbyId)
 	{
 		FScopeLock ScopeLock(&SessionLock);
 		for (int32 SearchIndex = 0; SearchIndex < Sessions.Num(); SearchIndex++)
@@ -336,7 +339,7 @@ PACKAGE_SCOPE:
 			if (Session.SessionInfo.IsValid())
 			{
 				FOnlineSessionInfoSteam* SessionInfo = (FOnlineSessionInfoSteam*)Session.SessionInfo.Get();
-				if (SessionInfo->SessionType == ESteamSession::LobbySession && *SessionInfo->SessionId == LobbyId)
+				if (SessionInfo->SessionType == ESteamSession::LobbySession && SessionInfo->SessionId == LobbyId)
 				{
 					return &Sessions[SearchIndex];
 				}
@@ -380,10 +383,10 @@ PACKAGE_SCOPE:
 	 *
 	 * @param LobbyId lobby being joined
 	 */
-	void JoinedLobby(const FUniqueNetIdSteam& LobbyId)
+	void JoinedLobby(FUniqueNetIdSteam& LobbyId)
 	{
 		FScopeLock ScopeLock(&JoinedLobbyLock);
-		JoinedLobbyList.Add(LobbyId.AsShared());
+		JoinedLobbyList.Add(LobbyId);
 	}
 
 	/**
@@ -391,10 +394,10 @@ PACKAGE_SCOPE:
 	 *
 	 * @param LobbyId lobby being left
 	 */
-	void LeftLobby(const FUniqueNetIdSteam& LobbyId)
+	void LeftLobby(FUniqueNetIdSteam& LobbyId)
 	{
 		FScopeLock ScopeLock(&JoinedLobbyLock);
-		JoinedLobbyList.RemoveSingleSwap(LobbyId.AsShared());
+		JoinedLobbyList.RemoveSingleSwap(LobbyId);
 	}
 
 	/**
@@ -404,10 +407,10 @@ PACKAGE_SCOPE:
 	 *
 	 * @return true if member of lobby, else false
 	 */
-	bool IsMemberOfLobby(const FUniqueNetIdSteam& LobbyId)
+	bool IsMemberOfLobby(FUniqueNetIdSteam& LobbyId)
 	{
 		FScopeLock ScopeLock(&JoinedLobbyLock);
-		return JoinedLobbyList.Find(LobbyId.AsShared()) != INDEX_NONE;
+		return JoinedLobbyList.Find(LobbyId) != INDEX_NONE;
 	}
 
 	/**
@@ -431,20 +434,16 @@ PACKAGE_SCOPE:
 	 */
 	void RegisterLocalPlayers(class FNamedOnlineSession* Session);
 
-	/**
-	 * Parses the dedicated server custom name launch argument as specified by the
-	 * -SteamServerName= flag.
-	 *
-	 * @return the custom name if the value of the launch argument is specified and less than 64 characters
-	 *			otherwise returns empty string
-	 */
-	FString GetCustomDedicatedServerName() const;
-
 public:
 
 	virtual ~FOnlineSessionSteam() {}
 
-	virtual FUniqueNetIdPtr CreateSessionIdFromString(const FString& SessionIdStr) override;
+	virtual TSharedPtr<const FUniqueNetId> CreateSessionIdFromString(const FString& SessionIdStr) override
+	{
+		/* NYI */
+		TSharedPtr<const FUniqueNetId> SessionId;
+		return SessionId;
+	}
 
 	FNamedOnlineSession* GetNamedSession(FName SessionName) override
 	{
@@ -508,7 +507,7 @@ public:
 	virtual bool EndSession(FName SessionName) override;
 	virtual bool DestroySession(FName SessionName, const FOnDestroySessionCompleteDelegate& CompletionDelegate = FOnDestroySessionCompleteDelegate()) override;
 	virtual bool IsPlayerInSession(FName SessionName, const FUniqueNetId& UniqueId) override;
-	virtual bool StartMatchmaking(const TArray< FUniqueNetIdRef >& LocalPlayers, FName SessionName, const FOnlineSessionSettings& NewSessionSettings, TSharedRef<FOnlineSessionSearch>& SearchSettings) override;
+	virtual bool StartMatchmaking(const TArray< TSharedRef<const FUniqueNetId> >& LocalPlayers, FName SessionName, const FOnlineSessionSettings& NewSessionSettings, TSharedRef<FOnlineSessionSearch>& SearchSettings) override;
 	virtual bool CancelMatchmaking(int32 SearchingPlayerNum, FName SessionName) override;
 	virtual bool CancelMatchmaking(const FUniqueNetId& SearchingPlayerId, FName SessionName) override;
 	virtual bool FindSessions(int32 SearchingPlayerNum, const TSharedRef<FOnlineSessionSearch>& SearchSettings) override;
@@ -520,18 +519,18 @@ public:
 	virtual bool JoinSession(const FUniqueNetId& PlayerId, FName SessionName, const FOnlineSessionSearchResult& DesiredSession) override;
 	virtual bool FindFriendSession(int32 LocalUserNum, const FUniqueNetId& Friend) override;
 	virtual bool FindFriendSession(const FUniqueNetId& LocalUserId, const FUniqueNetId& Friend) override;
-	virtual bool FindFriendSession(const FUniqueNetId& LocalUserId, const TArray<FUniqueNetIdRef>& FriendList) override;
+	virtual bool FindFriendSession(const FUniqueNetId& LocalUserId, const TArray<TSharedRef<const FUniqueNetId>>& FriendList) override;
 	virtual bool SendSessionInviteToFriend(int32 LocalUserNum, FName SessionName, const FUniqueNetId& Friend) override;
 	virtual bool SendSessionInviteToFriend(const FUniqueNetId& LocalUserId, FName SessionName, const FUniqueNetId& Friend) override;
-	virtual bool SendSessionInviteToFriends(int32 LocalUserNum, FName SessionName, const TArray< FUniqueNetIdRef >& Friends) override;
-	virtual bool SendSessionInviteToFriends(const FUniqueNetId& LocalUserId, FName SessionName, const TArray< FUniqueNetIdRef >& Friends) override;
+	virtual bool SendSessionInviteToFriends(int32 LocalUserNum, FName SessionName, const TArray< TSharedRef<const FUniqueNetId> >& Friends) override;
+	virtual bool SendSessionInviteToFriends(const FUniqueNetId& LocalUserId, FName SessionName, const TArray< TSharedRef<const FUniqueNetId> >& Friends) override;
 	virtual bool GetResolvedConnectString(FName SessionName, FString& ConnectInfo, FName PortType) override;
 	virtual bool GetResolvedConnectString(const FOnlineSessionSearchResult& SearchResult, FName PortType, FString& ConnectInfo) override;
 	virtual FOnlineSessionSettings* GetSessionSettings(FName SessionName) override;
 	virtual bool RegisterPlayer(FName SessionName, const FUniqueNetId& PlayerId, bool bWasInvited) override;
-	virtual bool RegisterPlayers(FName SessionName, const TArray< FUniqueNetIdRef >& Players, bool bWasInvited = false) override;
+	virtual bool RegisterPlayers(FName SessionName, const TArray< TSharedRef<const FUniqueNetId> >& Players, bool bWasInvited = false) override;
 	virtual bool UnregisterPlayer(FName SessionName, const FUniqueNetId& PlayerId) override;
-	virtual bool UnregisterPlayers(FName SessionName, const TArray< FUniqueNetIdRef >& Players) override;
+	virtual bool UnregisterPlayers(FName SessionName, const TArray< TSharedRef<const FUniqueNetId> >& Players) override;
 	virtual void RegisterLocalPlayer(const FUniqueNetId& PlayerId, FName SessionName, const FOnRegisterLocalPlayerCompleteDelegate& Delegate) override;
 	virtual void UnregisterLocalPlayer(const FUniqueNetId& PlayerId, FName SessionName, const FOnUnregisterLocalPlayerCompleteDelegate& Delegate) override;
 	virtual int32 GetNumSessions() override;

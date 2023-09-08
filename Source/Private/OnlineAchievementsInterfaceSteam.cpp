@@ -1,9 +1,8 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "OnlineAchievementsInterfaceSteam.h"
 #include "OnlineSubsystemSteam.h"
 #include "OnlineLeaderboardInterfaceSteam.h"
-#include <steam/isteamuser.h>
 
 FOnlineAchievementsSteam::FOnlineAchievementsSteam( class FOnlineSubsystemSteam* InSubsystem )
 	:	SteamSubsystem(InSubsystem)
@@ -40,10 +39,9 @@ void FOnlineAchievementsSteam::WriteAchievements(const FUniqueNetId& PlayerId, F
 		return;
 	}
 
-	const FUniqueNetIdSteam& SteamId = FUniqueNetIdSteam::Cast(PlayerId);
-	const CSteamID CSID = SteamId;
+	FUniqueNetIdSteam SteamId(PlayerId);
 	// check if this is our player (cannot report for someone else)
-	if (SteamUser() == NULL || SteamUser()->GetSteamID() != CSID)
+	if (SteamUser() == NULL || SteamUser()->GetSteamID() != SteamId)
 	{
 		// we don't have achievements
 		UE_LOG_ONLINE_ACHIEVEMENTS(Warning, TEXT("Cannot report Steam achievements for non-local player %s"), *PlayerId.ToString());
@@ -53,7 +51,7 @@ void FOnlineAchievementsSteam::WriteAchievements(const FUniqueNetId& PlayerId, F
 		return;
 	}
 
-	const TArray<FOnlineAchievement> * PlayerAch = PlayerAchievements.Find(SteamId.AsShared());
+	const TArray<FOnlineAchievement> * PlayerAch = PlayerAchievements.Find(SteamId);
 	if (NULL == PlayerAch)
 	{
 		// achievements haven't been read for a player
@@ -109,7 +107,7 @@ void FOnlineAchievementsSteam::OnWriteAchievementsComplete(const FUniqueNetIdSte
 	// if write completed successfully, unlock the achievements (and update their cache)
 	if (bWasSuccessful)
 	{
-		TArray<FOnlineAchievement> * PlayerAch = PlayerAchievements.Find(PlayerId.AsShared());
+		TArray<FOnlineAchievement> * PlayerAch = PlayerAchievements.Find(PlayerId);
 		check(PlayerAch);	// were we writing for a non-existing player?
 		if (NULL != PlayerAch && WriteObject.IsValid())
 		{
@@ -147,7 +145,7 @@ void FOnlineAchievementsSteam::QueryAchievements(const FUniqueNetId& PlayerId, c
 	}
 
 	// schedule a read (this will trigger the OnAchievementsRead delegates)
-	StatsInt->QueryAchievementsInternal( FUniqueNetIdSteam::Cast(PlayerId), Delegate );
+	StatsInt->QueryAchievementsInternal( FUniqueNetIdSteam(PlayerId), Delegate );
 }
 
 void FOnlineAchievementsSteam::QueryAchievementDescriptions( const FUniqueNetId& PlayerId, const FOnQueryAchievementsCompleteDelegate& Delegate )
@@ -162,7 +160,7 @@ void FOnlineAchievementsSteam::QueryAchievementDescriptions( const FUniqueNetId&
 	}
 
 	// schedule a read (this will trigger the OnAchievementDescriptionsRead delegates)
-	StatsInt->QueryAchievementsInternal( FUniqueNetIdSteam::Cast(PlayerId), Delegate );
+	StatsInt->QueryAchievementsInternal( FUniqueNetIdSteam(PlayerId), Delegate );
 }
 
 
@@ -208,7 +206,7 @@ void FOnlineAchievementsSteam::UpdateAchievementsForUser(const FUniqueNetIdSteam
 		NewAch.LockedDesc = FText::FromString( UTF8_TO_TCHAR( SteamUserStatsPtr->GetAchievementDisplayAttribute(TCHAR_TO_UTF8(*Achievements[AchIdx].Id), "desc") ) );
 		NewAch.UnlockedDesc = NewAch.LockedDesc;
 
-		NewAch.bIsHidden = FCString::Atoi( UTF8_TO_TCHAR( SteamUserStatsPtr->GetAchievementDisplayAttribute(TCHAR_TO_UTF8(*Achievements[AchIdx].Id), "hidden") ) ) != 0;
+		NewAch.bIsHidden = FCString::Atoi( UTF8_TO_TCHAR( SteamUserStatsPtr->GetAchievementDisplayAttribute(TCHAR_TO_UTF8(*Achievements[AchIdx].Id), "desc") ) ) != 0;
 
 		UE_LOG_ONLINE_ACHIEVEMENTS(Verbose, TEXT("Read achievement %d: %s"), AchIdx, *NewAch.ToDebugString());
 		AchievementsForPlayer.Add( NewAch );
@@ -218,7 +216,7 @@ void FOnlineAchievementsSteam::UpdateAchievementsForUser(const FUniqueNetIdSteam
 	}
 
 	// should replace any already existing values
-	PlayerAchievements.Add(PlayerId.AsShared(), AchievementsForPlayer);
+	PlayerAchievements.Add(PlayerId, AchievementsForPlayer);
 }
 
 EOnlineCachedResult::Type FOnlineAchievementsSteam::GetCachedAchievement(const FUniqueNetId& PlayerId, const FString& AchievementId, FOnlineAchievement& OutAchievement)
@@ -230,7 +228,7 @@ EOnlineCachedResult::Type FOnlineAchievementsSteam::GetCachedAchievement(const F
 		return EOnlineCachedResult::NotFound;
 	}
 
-	const TArray<FOnlineAchievement> * PlayerAch = PlayerAchievements.Find(PlayerId.AsShared());
+	const TArray<FOnlineAchievement> * PlayerAch = PlayerAchievements.Find(FUniqueNetIdSteam (PlayerId));
 	if (NULL == PlayerAch)
 	{
 		// achievements haven't been read for a player
@@ -262,7 +260,7 @@ EOnlineCachedResult::Type FOnlineAchievementsSteam::GetCachedAchievements(const 
 		return EOnlineCachedResult::NotFound;
 	}
 
-	const TArray<FOnlineAchievement> * PlayerAch = PlayerAchievements.Find(PlayerId.AsShared());
+	const TArray<FOnlineAchievement> * PlayerAch = PlayerAchievements.Find(FUniqueNetIdSteam (PlayerId));
 	if (NULL == PlayerAch)
 	{
 		// achievements haven't been read for a player
@@ -312,7 +310,7 @@ bool FOnlineAchievementsSteam::ResetAchievements(const FUniqueNetId& PlayerId)
 		return false;
 	}
 
-	const FUniqueNetIdSteam& SteamId = FUniqueNetIdSteam::Cast(PlayerId);
+	FUniqueNetIdSteam SteamId(PlayerId);
 	// check if this is our player (cannot report for someone else)
 	if (SteamUser() == NULL || SteamUser()->GetSteamID() != SteamId)
 	{
@@ -321,7 +319,7 @@ bool FOnlineAchievementsSteam::ResetAchievements(const FUniqueNetId& PlayerId)
 		return false;
 	}
 
-	const TArray<FOnlineAchievement> * PlayerAch = PlayerAchievements.Find(SteamId.AsShared());
+	const TArray<FOnlineAchievement> * PlayerAch = PlayerAchievements.Find(SteamId);
 	if (NULL == PlayerAch)
 	{
 		// achievements haven't been read for a player

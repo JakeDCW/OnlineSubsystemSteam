@@ -1,13 +1,16 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
+#include "CoreMinimal.h"
+#include "UObject/CoreOnline.h"
 #include "OnlineSubsystemSteamTypes.h"
 #include "OnlineSessionSettings.h"
 #include "Interfaces/OnlineSessionInterface.h"
+#include "OnlineAsyncTaskManager.h"
 #include "OnlineAsyncTaskManagerSteam.h"
-
-class FOnlineSubsystemSteam;
+#include "OnlineSubsystemSteam.h"
+#include "OnlineSubsystemSteamPackage.h"
 
 /** 
  *  Async task for creating a Steam backend lobby as host and defining the proper settings
@@ -134,10 +137,15 @@ private:
 	/** Name of session being created */
 	FName SessionName;
 	/** Lobby to join */
-	FUniqueNetIdSteamRef LobbyId;
+	FUniqueNetIdSteam LobbyId;
 
 	/** Hidden on purpose */
-	FOnlineAsyncTaskSteamJoinLobby() = delete;
+	FOnlineAsyncTaskSteamJoinLobby() : 
+		bInit(false),
+		SessionName(NAME_None),
+		LobbyId(0)
+	{
+	}
 
 PACKAGE_SCOPE:
 
@@ -151,7 +159,7 @@ public:
 		FOnlineAsyncTaskSteam(InSubsystem, k_uAPICallInvalid),
 		bInit(false),
 		SessionName(InSessionName),
-		LobbyId(InLobbyId.AsShared())
+		LobbyId(InLobbyId)
 	{
 	}
 
@@ -188,17 +196,21 @@ private:
 	/** Name of session lobby */
 	FName SessionName;
 	/** LobbyId to end */
-	FUniqueNetIdSteamRef LobbyId;
+	FUniqueNetIdSteam LobbyId;
 
 	/** Hidden on purpose */
-	FOnlineAsyncTaskSteamLeaveLobby() = delete;
+	FOnlineAsyncTaskSteamLeaveLobby() : 
+		SessionName(NAME_None),
+		LobbyId(uint64(0))
+	{
+	}
 
 public:
 
 	FOnlineAsyncTaskSteamLeaveLobby(class FOnlineSubsystemSteam* InSubsystem, FName InSessionName, const FUniqueNetIdSteam& InLobbyId) :
 		FOnlineAsyncTaskSteam(InSubsystem, k_uAPICallInvalid),
 		SessionName(InSessionName),
-		LobbyId(InLobbyId.AsShared())
+		LobbyId(InLobbyId)
 	{
 	}
 
@@ -270,7 +282,7 @@ public:
 	 *
 	 * @param LobbyId lobby to create the search result for
 	 */
-	void ParseSearchResult(const FUniqueNetIdSteam& LobbyId);
+	void ParseSearchResult(FUniqueNetIdSteam& LobbyId);
 
 	/**
 	 * Give the async task time to do its work
@@ -310,7 +322,7 @@ public:
 	virtual void TriggerDelegates() override;
 };
 
-DECLARE_MULTICAST_DELEGATE_FourParams(FOnAsyncFindLobbyCompleteWithNetId, const bool, const int32, FUniqueNetIdPtr, const class FOnlineSessionSearchResult&);
+DECLARE_MULTICAST_DELEGATE_FourParams(FOnAsyncFindLobbyCompleteWithNetId, const bool, const int32, TSharedPtr< const FUniqueNetId >, const class FOnlineSessionSearchResult&);
 typedef FOnAsyncFindLobbyCompleteWithNetId::FDelegate FOnAsyncFindLobbyCompleteDelegateWithNetId;
 
 class FOnlineAsyncTaskSteamFindLobbiesForInviteSession : public FOnlineAsyncTaskSteamFindLobbiesBase
@@ -381,20 +393,25 @@ private:
 class FOnlineAsyncEventSteamLobbyInviteAccepted : public FOnlineAsyncEvent<FOnlineSubsystemSteam>
 {
 	/** Friend that invited */
-	FUniqueNetIdSteamRef FriendId;
+	FUniqueNetIdSteam FriendId;
 	/** Lobby to go to */
-	FUniqueNetIdSteamRef LobbyId;
+	FUniqueNetIdSteam LobbyId;
 	/** User initiating the request */
 	int32 LocalUserNum;
 
 	/** Hidden on purpose */
-	FOnlineAsyncEventSteamLobbyInviteAccepted() = delete;
+	FOnlineAsyncEventSteamLobbyInviteAccepted() :
+		FOnlineAsyncEvent(NULL),
+		FriendId((uint64)0),
+		LobbyId((uint64)0)
+	{
+	}
 
 public:
 	FOnlineAsyncEventSteamLobbyInviteAccepted(FOnlineSubsystemSteam* InSubsystem, const FUniqueNetIdSteam& InFriendId, const FUniqueNetIdSteam& InLobbyId) :
 		FOnlineAsyncEvent(InSubsystem),
-		FriendId(InFriendId.AsShared()),
-		LobbyId(InLobbyId.AsShared()),
+		FriendId(InFriendId),
+		LobbyId(InLobbyId),
 		LocalUserNum(0)
 	{
 	}
@@ -428,14 +445,12 @@ ELobbyType BuildLobbyType(FOnlineSessionSettings* SessionSettings);
  *	Populate an FSession data structure from the data stored with a lobby
  * Expects a certain number of keys to be present otherwise this will fail
  *
- * @param SteamSubsystem the online subsystem to use
  * @param LobbyId the Steam lobby to fill data from
  * @param Session empty session structure to fill in
- * @param SearchData if this is provided and the Steam session supports SteamSockets, the ping for the lobby will be written into the search result data.
  *
  * @return true if successful, false otherwise
  */
-bool FillSessionFromLobbyData(FOnlineSubsystemSteam* SteamSubsystem, const FUniqueNetIdSteam& LobbyId, class FOnlineSession& Session, FOnlineSessionSearchResult* SearchData = nullptr);
+bool FillSessionFromLobbyData(FUniqueNetIdSteam& LobbyId, class FOnlineSession& Session);
 
 /**
  *	Populate an FSession data structure from the data stored with the members of the lobby
@@ -445,4 +460,4 @@ bool FillSessionFromLobbyData(FOnlineSubsystemSteam* SteamSubsystem, const FUniq
  *
  * @return true if successful, false otherwise
  */
-bool FillMembersFromLobbyData(const FUniqueNetIdSteam& LobbyId, class FNamedOnlineSession& Session);
+bool FillMembersFromLobbyData(FUniqueNetIdSteam& LobbyId, class FNamedOnlineSession& Session);

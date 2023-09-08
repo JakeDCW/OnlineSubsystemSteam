@@ -1,25 +1,26 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
+#include "CoreMinimal.h"
 #include "OnlineSubsystemSteamTypes.h"
-#include "NboSerializerOSS.h"
+#include "NboSerializer.h"
 
 /**
  * Serializes data in network byte order form into a buffer
  */
-class FNboSerializeToBufferSteam : public FNboSerializeToBufferOSS
+class FNboSerializeToBufferSteam : public FNboSerializeToBuffer
 {
 public:
 	/** Default constructor zeros num bytes*/
 	FNboSerializeToBufferSteam() :
-		FNboSerializeToBufferOSS(512)
+		FNboSerializeToBuffer(512)
 	{
 	}
 
 	/** Constructor specifying the size to use */
 	FNboSerializeToBufferSteam(uint32 Size) :
-		FNboSerializeToBufferOSS(Size)
+		FNboSerializeToBuffer(Size)
 	{
 	}
 
@@ -30,23 +31,32 @@ public:
  	{
 		check(SessionInfo.HostAddr.IsValid());
 		// Skip SessionType (assigned at creation)
-		((FNboSerializeToBuffer&)Ar) << *SessionInfo.HostAddr;
-		((FNboSerializeToBuffer&)Ar) << SessionInfo.SessionId->UniqueNetId;
+		Ar << *SessionInfo.HostAddr;
+		Ar << SessionInfo.SessionId;
 		return Ar;
  	}
+
+	/**
+	 * Adds Steam Unique Id to the buffer
+	 */
+	friend inline FNboSerializeToBufferSteam& operator<<(FNboSerializeToBufferSteam& Ar, const FUniqueNetIdSteam& UniqueId)
+	{
+		Ar << UniqueId.UniqueNetId;
+		return Ar;
+	}
 };
 
 /**
  * Class used to write data into packets for sending via system link
  */
-class FNboSerializeFromBufferSteam : public FNboSerializeFromBufferOSS
+class FNboSerializeFromBufferSteam : public FNboSerializeFromBuffer
 {
 public:
 	/**
 	 * Initializes the buffer, size, and zeros the read offset
 	 */
 	FNboSerializeFromBufferSteam(uint8* Packet,int32 Length) :
-		FNboSerializeFromBufferOSS(Packet,Length)
+		FNboSerializeFromBuffer(Packet,Length)
 	{
 	}
 
@@ -56,14 +66,18 @@ public:
  	friend inline FNboSerializeFromBufferSteam& operator>>(FNboSerializeFromBufferSteam& Ar, FOnlineSessionInfoSteam& SessionInfo)
  	{
 		check(SessionInfo.HostAddr.IsValid());
-
 		// Skip SessionType (assigned at creation)
 		Ar >> *SessionInfo.HostAddr;
-
-		uint64 SessionId;
-		Ar >> SessionId;
-		SessionInfo.SessionId = FUniqueNetIdSteam::Create(SessionId);
-
+		Ar >> SessionInfo.SessionId; 
 		return Ar;
  	}
+
+	/**
+	 * Reads Steam Unique Id from the buffer
+	 */
+	friend inline FNboSerializeFromBufferSteam& operator>>(FNboSerializeFromBufferSteam& Ar, FUniqueNetIdSteam& UniqueId)
+	{
+		Ar >> UniqueId.UniqueNetId;
+		return Ar;
+	}
 };

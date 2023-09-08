@@ -1,18 +1,20 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
-#include "OnlineSubsystemSteam.h"
+#include "CoreMinimal.h"
+#include "IPAddress.h"
 #include "OnlineSubsystemSteamTypes.h"
+#include "OnlineSubsystemSteamPackage.h"
 
 /**
  * Represents an internet ip address, using the relatively standard SOCKADDR_IN structure. All data is in network byte order
  */
-class FInternetAddrSteam : public FInternetAddr
+class ONLINESUBSYSTEMSTEAM_API FInternetAddrSteam : public FInternetAddr
 {
-PACKAGE_SCOPE:
+public:
 	/** The Steam id to connect to */
-	FUniqueNetIdSteamRef SteamId;
+	FUniqueNetIdSteam SteamId;
 	/** Steam channel to communicate on */
 	int32 SteamChannel;
 
@@ -25,29 +27,18 @@ PACKAGE_SCOPE:
 	{
 	}
 
-public:
 	/**
 	 * Constructor. Sets address to default state
 	 */
 	FInternetAddrSteam() :
-		SteamId(FUniqueNetIdSteam::EmptyId()),
+		SteamId((uint64)0),
 		SteamChannel(0)
 	{
 	}
-
 	/**
-	 * Constructor.
+	 * Constructor. Sets address to default state
 	 */
 	explicit FInternetAddrSteam(const FUniqueNetIdSteam& InSteamId) :
-		SteamId(InSteamId.AsShared()),
-		SteamChannel(0)
-	{
-	}
-
-	/**
-	 * Constructor.
-	 */
-	explicit FInternetAddrSteam(const FUniqueNetIdSteamRef& InSteamId) :
 		SteamId(InSteamId),
 		SteamChannel(0)
 	{
@@ -147,11 +138,11 @@ public:
 	{
 		if (bAppendPort)
 		{
-			return FString::Printf(TEXT("%lld:%d"), SteamId->UniqueNetId, SteamChannel);
+			return FString::Printf(TEXT("%lld:%d"), SteamId.UniqueNetId, SteamChannel);
 		}
 		else
 		{
-			return FString::Printf(TEXT("%lld"), SteamId->UniqueNetId);
+			return FString::Printf(TEXT("%lld"), SteamId.UniqueNetId);
 		}
 	}
 
@@ -163,12 +154,7 @@ public:
 	virtual bool operator==(const FInternetAddr& Other) const override
 	{
 		FInternetAddrSteam& SteamOther = (FInternetAddrSteam&)Other;
-		return *SteamId == *SteamOther.SteamId && SteamChannel == SteamOther.SteamChannel;
-	}
-
-	bool operator==(const FInternetAddrSteam& Other) const
-	{
-		return *SteamId == *Other.SteamId && SteamChannel == Other.SteamChannel;
+		return SteamId == SteamOther.SteamId && SteamChannel == SteamOther.SteamChannel;
 	}
 
 	bool operator!=(const FInternetAddrSteam& Other) const
@@ -176,14 +162,9 @@ public:
 		return !(FInternetAddrSteam::operator==(Other));
 	}
 
-	virtual uint32 GetTypeHash() const override
+	virtual uint32 GetTypeHash() override
 	{
-		return GetTypeHashHelper(ToString(true));
-	}
-
-	friend uint32 GetTypeHash(const FInternetAddrSteam& A)
-	{
-		return A.GetTypeHash();
+		return ::GetTypeHash(*(uint64*)SteamId.GetBytes());
 	}
 
 	/**
@@ -193,12 +174,7 @@ public:
 	 */
 	virtual bool IsValid() const override
 	{
-		return SteamId->IsValid();
-	}
-
-	virtual FName GetProtocolType() const override
-	{
-		return FNetworkProtocolTypes::Steam;
+		return SteamId.IsValid();
 	}
 
 	virtual TSharedRef<FInternetAddr> Clone() const override

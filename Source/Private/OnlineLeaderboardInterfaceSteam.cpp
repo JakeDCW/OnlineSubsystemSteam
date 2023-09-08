@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "OnlineLeaderboardInterfaceSteam.h"
 #include "Misc/ScopeLock.h"
@@ -88,19 +88,24 @@ private:
 	/** Has this task been initialized yet */
 	bool bInit;
 	/** User Id we are requesting stats for */
-	FUniqueNetIdSteamRef UserId;
+	FUniqueNetIdSteam UserId;
 	/** Returned results from Steam */
 	UserStatsReceived_t CallbackResults;
 
 	/** Hidden on purpose */
-	FOnlineAsyncTaskSteamRequestUserStats() = delete;
+ 	FOnlineAsyncTaskSteamRequestUserStats() :
+ 		FOnlineAsyncTaskSteam(NULL, k_uAPICallInvalid),
+		bInit(false),
+		UserId(0)
+ 	{
+ 	}
 
 public:
 
 	FOnlineAsyncTaskSteamRequestUserStats(FOnlineSubsystemSteam* InSteamSubsystem, const FUniqueNetIdSteam& InUserId) :
 		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
 		bInit(false),
-		UserId(InUserId.AsShared())
+		UserId(InUserId)
 	{
 	}
 
@@ -109,7 +114,7 @@ public:
 	 */
 	FString ToString() const override
 	{
-		return FString::Printf(TEXT("FOnlineAsyncTaskSteamRequestUserStats bWasSuccessful: %d UserId: %s"), WasSuccessful(), *UserId->ToDebugString());
+		return FString::Printf(TEXT("FOnlineAsyncTaskSteamRequestUserStats bWasSuccessful: %d UserId: %s"), WasSuccessful(), *UserId.ToDebugString());
 	}
 
 	/**
@@ -122,7 +127,7 @@ public:
 		{
 			ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
 			check(SteamUserStatsPtr);
-			CallbackHandle = SteamUserStatsPtr->RequestUserStats(*(uint64*)UserId->GetBytes());
+			CallbackHandle = SteamUserStatsPtr->RequestUserStats(*(uint64*)UserId.GetBytes());
 			bInit = true;
 		}
 
@@ -164,16 +169,16 @@ public:
 			const CGameID GameID(Subsystem->GetSteamAppId());
 			if (GameID.ToUint64() == CallbackResults.m_nGameID)
 			{
-				check(CallbackResults.m_steamIDUser == *UserId);
+				check(UserId == FUniqueNetIdSteam(CallbackResults.m_steamIDUser));
 				if (CallbackResults.m_eResult != k_EResultOK)
 				{
 					if (CallbackResults.m_eResult == k_EResultFail)
 					{
-						UE_LOG_ONLINE_LEADERBOARD(Warning, TEXT("Failed to obtain steam user stats, user: %s has no stats entries"), *UserId->ToDebugString());
+						UE_LOG_ONLINE_LEADERBOARD(Warning, TEXT("Failed to obtain steam user stats, user: %s has no stats entries"), *UserId.ToDebugString());
 					}
 					else
 					{
-						UE_LOG_ONLINE_LEADERBOARD(Warning, TEXT("Failed to obtain steam user stats, user: %s error: %s"), *UserId->ToDebugString(), 
+						UE_LOG_ONLINE_LEADERBOARD(Warning, TEXT("Failed to obtain steam user stats, user: %s error: %s"), *UserId.ToDebugString(), 
 							*SteamResultString(CallbackResults.m_eResult));
 					}
 				}
@@ -187,7 +192,7 @@ public:
 		}
 		else
 		{
-			UE_LOG_ONLINE_LEADERBOARD(Warning, TEXT("Failed to obtain steam user stats, user: %s error: unknown"), *UserId->ToDebugString());
+			UE_LOG_ONLINE_LEADERBOARD(Warning, TEXT("Failed to obtain steam user stats, user: %s error: unknown"), *UserId.ToDebugString());
 		}
 	}
 };
@@ -201,20 +206,26 @@ private:
 	/** Has this task been initialized yet */
 	bool bInit;
 	/** Player whose stats are updating */
-	FUniqueNetIdSteamRef UserId;
+	FUniqueNetIdSteam UserId;
 	/** Array of stats to update for the given user */
 	const FStatPropertyArray Stats;
 	/** Returned results from Steam */
 	UserStatsReceived_t CallbackResults;
 
 	/** Hidden on purpose */
-	FOnlineAsyncTaskSteamUpdateStats() = delete;
+	FOnlineAsyncTaskSteamUpdateStats() :
+		FOnlineAsyncTaskSteam(NULL, k_uAPICallInvalid),
+		bInit(false),
+		UserId(0),
+		Stats()
+	{
+	}
 
 public:
 	FOnlineAsyncTaskSteamUpdateStats(FOnlineSubsystemSteam* InSteamSubsystem, const FUniqueNetIdSteam& InUserId, const FStatPropertyArray& InStats) :
 		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
 		bInit(false),
-		UserId(InUserId.AsShared()),
+		UserId(InUserId),
 		Stats(InStats)
 	{
 	}
@@ -224,7 +235,7 @@ public:
 	 */
 	FString ToString() const override
 	{
-		return FString::Printf(TEXT("FOnlineAsyncTaskSteamUpdateStats bWasSuccessful: %d User: %s"), WasSuccessful(), *UserId->ToDebugString());
+		return FString::Printf(TEXT("FOnlineAsyncTaskSteamUpdateStats bWasSuccessful: %d User: %s"), WasSuccessful(), *UserId.ToDebugString());
 	}
 
 	/**
@@ -235,8 +246,9 @@ public:
 	{
 		if (!bInit)
 		{
+			CSteamID SteamUserId(*(uint64*)UserId.GetBytes());
 			// Triggers a Steam event async to let us know when the stats are available
-			CallbackHandle = SteamUserStats()->RequestUserStats(*UserId);
+			CallbackHandle = SteamUserStats()->RequestUserStats(SteamUserId);
 			bInit = true;
 		}
 
@@ -259,6 +271,8 @@ public:
 
 				if (bWasSuccessful)
 				{
+					CSteamID SteamUserId(*(uint64*)UserId.GetBytes());
+
 					// Stats are set here to ensure that this happens before any possible call to StoreStats()
 					ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
 					check(SteamUserStatsPtr);
@@ -317,7 +331,7 @@ private:
 	/** Has this task been initialized yet */
 	bool bInit;
 	/** User to retrieve stats for */
-	FUniqueNetIdSteamRef UserId;
+	FUniqueNetIdSteam UserId;
 	/** Handle to the read object where the data will be stored */
 	FOnlineLeaderboardReadPtr ReadObject;
 	/** Returned results from Steam */
@@ -326,14 +340,21 @@ private:
 	bool bShouldTriggerDelegates;
 
 	/** Hidden on purpose */
-	FOnlineAsyncTaskSteamRetrieveStats() = delete;
+	FOnlineAsyncTaskSteamRetrieveStats() :
+		FOnlineAsyncTaskSteam(NULL, k_uAPICallInvalid),
+		bInit(false),
+		UserId(0),
+		ReadObject(NULL),
+		bShouldTriggerDelegates(false)
+	{
+	}
 
 public:
 
 	FOnlineAsyncTaskSteamRetrieveStats(FOnlineSubsystemSteam* InSteamSubsystem, const FUniqueNetIdSteam& InUserId, const FOnlineLeaderboardReadRef& InReadObject, bool bInShouldTriggerDelegates) :
 		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
 		bInit(false),
-		UserId(InUserId.AsShared()),
+		UserId(InUserId),
 		ReadObject(InReadObject),
 		bShouldTriggerDelegates(bInShouldTriggerDelegates)
 	{
@@ -344,7 +365,7 @@ public:
 	 */
 	FString ToString() const override
 	{
-		return FString::Printf(TEXT("FOnlineAsyncTaskSteamRetrieveStats bWasSuccessful: %d UserId: %s"), WasSuccessful(), *UserId->ToDebugString());
+		return FString::Printf(TEXT("FOnlineAsyncTaskSteamRetrieveStats bWasSuccessful: %d UserId: %s"), WasSuccessful(), *UserId.ToDebugString());
 	}
 
 	/**
@@ -356,7 +377,7 @@ public:
 		if (!bInit)
 		{
 			// Triggers a Steam event async to let us know when the stats are available
-			CallbackHandle = SteamUserStats()->RequestUserStats(*UserId);
+			CallbackHandle = SteamUserStats()->RequestUserStats(*(uint64*)UserId.GetBytes());
 			bInit = true;
 		}
 
@@ -395,11 +416,14 @@ public:
 		ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
 		check(SteamUserStatsPtr);
 
-		FOnlineStatsRow* UserRow = ReadObject->FindPlayerRecord(*UserId);
+		// Copy the data back over to the appropriate object
+		CSteamID SteamUserId(*(uint64*)UserId.GetBytes());
+
+		FOnlineStatsRow* UserRow = ReadObject->FindPlayerRecord(UserId);
 		if (UserRow == NULL)
 		{
-			const FString NickName(UTF8_TO_TCHAR(SteamFriends()->GetFriendPersonaName(*UserId)));
-			UserRow = new (ReadObject->Rows) FOnlineStatsRow(NickName, UserId);
+			const FString NickName(UTF8_TO_TCHAR(SteamFriends()->GetFriendPersonaName(SteamUserId)));
+			UserRow = new (ReadObject->Rows) FOnlineStatsRow(NickName, MakeShareable(new FUniqueNetIdSteam(SteamUserId)));
 		}
 
 		if (bWasSuccessful)
@@ -429,7 +453,7 @@ public:
 					case EOnlineKeyValuePairDataType::Int32:
 						{
 							int32 Value;
-							bSuccess = SteamUserStatsPtr->GetUserStat(*UserId, TCHAR_TO_UTF8(*StatName), &Value) ? true : false;
+							bSuccess = SteamUserStatsPtr->GetUserStat(SteamUserId, TCHAR_TO_UTF8(*StatName), &Value) ? true : false;
 							LastColumn = &(UserRow->Columns.Add(ColumnMeta.ColumnName, FVariantData(Value)));
 							break;
 						}
@@ -437,7 +461,7 @@ public:
 					case EOnlineKeyValuePairDataType::Float:
 						{
 							float Value;
-							bSuccess = SteamUserStatsPtr->GetUserStat(*UserId, TCHAR_TO_UTF8(*StatName), &Value) ? true : false;
+							bSuccess = SteamUserStatsPtr->GetUserStat(SteamUserId, TCHAR_TO_UTF8(*StatName), &Value) ? true : false;
 							LastColumn = &(UserRow->Columns.Add(ColumnMeta.ColumnName, FVariantData(Value)));
 							break;
 						}
@@ -489,14 +513,19 @@ private:
 	/** Has this task been initialized yet */
 	bool bInit;
 	/** User to retrieve stats for */
-	FUniqueNetIdSteamRef UserId;
+	FUniqueNetIdSteam UserId;
 	/** Returned results from Steam */
 	UserStatsReceived_t CallbackResults;
 	/** Delegate for achievements */
 	FOnQueryAchievementsCompleteDelegate AchievementDelegate;
 
 	/** Hidden on purpose */
-	FOnlineAsyncTaskSteamGetAchievements() = delete;
+	FOnlineAsyncTaskSteamGetAchievements() :
+		FOnlineAsyncTaskSteam(NULL, k_uAPICallInvalid),
+		bInit(false),
+		UserId(0)
+	{
+	}
 
 public:
 
@@ -506,7 +535,7 @@ public:
 		const FOnQueryAchievementsCompleteDelegate& InAchievementDelegate ) :
 		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
 		bInit(false),
-		UserId(InUserId.AsShared()),
+		UserId(InUserId),
 		AchievementDelegate(InAchievementDelegate)
 	{
 	}
@@ -516,7 +545,7 @@ public:
 	 */
 	FString ToString() const override
 	{
-		return FString::Printf(TEXT("FOnlineAsyncTaskSteamGetAchievements bWasSuccessful: %d UserId: %s"), WasSuccessful(), *UserId->ToDebugString());
+		return FString::Printf(TEXT("FOnlineAsyncTaskSteamGetAchievements bWasSuccessful: %d UserId: %s"), WasSuccessful(), *UserId.ToDebugString());
 	}
 
 	/**
@@ -528,7 +557,7 @@ public:
 		if (!bInit)
 		{
 			// Triggers a Steam event async to let us know when the stats are available
-			CallbackHandle = SteamUserStats()->RequestUserStats(*UserId);
+			CallbackHandle = SteamUserStats()->RequestUserStats(*(uint64*)UserId.GetBytes());
 			bInit = true;
 		}
 
@@ -566,7 +595,7 @@ public:
 		FOnlineAsyncTaskSteam::Finalize();
 
 		FOnlineAchievementsSteamPtr Achievements = StaticCastSharedPtr<FOnlineAchievementsSteam>(Subsystem->GetAchievementsInterface());
-		Achievements->UpdateAchievementsForUser(*UserId, bWasSuccessful);
+		Achievements->UpdateAchievementsForUser(UserId, bWasSuccessful);
 	}
 
 	/**
@@ -577,7 +606,7 @@ public:
 		FOnlineAsyncTaskSteam::TriggerDelegates();
 		
 		FOnlineAchievementsSteamPtr Achievements = StaticCastSharedPtr<FOnlineAchievementsSteam>(Subsystem->GetAchievementsInterface());
-		AchievementDelegate.ExecuteIfBound(*UserId, bWasSuccessful);
+		AchievementDelegate.ExecuteIfBound( UserId, bWasSuccessful );
 	}
 };
 
@@ -766,7 +795,7 @@ private:
 	/** Has this request been started */
 	bool bInit;
 	/** Players to request leaderboard data for */
-	TArray< FUniqueNetIdRef > Players;
+	TArray< TSharedRef<const FUniqueNetId> > Players;
 	/** Handle to the read object where the data will be stored */
 	FOnlineLeaderboardReadRef ReadObject;
 	/** Results from callback */
@@ -781,7 +810,7 @@ private:
 
 
 public:
-	FOnlineAsyncTaskSteamRetrieveLeaderboardEntries(FOnlineSubsystemSteam* InSteamSubsystem, const TArray< FUniqueNetIdRef >& InPlayers, const FOnlineLeaderboardReadRef& InReadObject) :
+	FOnlineAsyncTaskSteamRetrieveLeaderboardEntries(FOnlineSubsystemSteam* InSteamSubsystem, const TArray< TSharedRef<const FUniqueNetId> >& InPlayers, const FOnlineLeaderboardReadRef& InReadObject) :
 		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
 		bInit(false),
 		Players(InPlayers),
@@ -811,14 +840,14 @@ public:
 	{
 	}
 
-	FOnlineAsyncTaskSteamRetrieveLeaderboardEntries(FOnlineSubsystemSteam* InSteamSubsystem, FUniqueNetIdRef InUser, int32 InRange, const FOnlineLeaderboardReadRef& InReadObject) :
+	FOnlineAsyncTaskSteamRetrieveLeaderboardEntries(FOnlineSubsystemSteam* InSteamSubsystem, TSharedRef<const FUniqueNetId> InUser, int32 InRange, const FOnlineLeaderboardReadRef& InReadObject) :
 		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
 		bInit(false),
 		ReadObject(InReadObject),
 		Range(InRange),
 		bShouldTriggerDelegates(false)
 	{
-		Players.Push(FUniqueNetIdSteam::Create(*InUser));
+		Players.Push(MakeShared<const FUniqueNetIdSteam>(*InUser));
 		Type = Subsystem->IsLocalPlayer(*Players[0]) ? RetrieveType::FetchCurRankUser : RetrieveType::FetchRankUser;
 	}
 
@@ -956,7 +985,7 @@ public:
 		FOnlineAsyncTaskSteam::Finalize();
 
 		// Mapping of players with stats
-		TUniqueNetIdMap<int32> PlayersHaveStats;
+		TMap<FUniqueNetIdSteam, int32> PlayersHaveStats;
 
 		ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
 		for (int32 EntryIdx=0; EntryIdx < CallbackResults.m_cEntryCount; EntryIdx++)
@@ -964,12 +993,12 @@ public:
 			LeaderboardEntry_t LeaderboardEntry;
 			if (SteamUserStatsPtr->GetDownloadedLeaderboardEntry(CallbackResults.m_hSteamLeaderboardEntries, EntryIdx, &LeaderboardEntry, NULL, 0))
 			{
-				FUniqueNetIdSteamRef CurrentUser = FUniqueNetIdSteam::Create(LeaderboardEntry.m_steamIDUser);
-				FOnlineStatsRow* UserRow = ReadObject->FindPlayerRecord(*CurrentUser);
+				FUniqueNetIdSteam CurrentUser(LeaderboardEntry.m_steamIDUser);
+				FOnlineStatsRow* UserRow = ReadObject->FindPlayerRecord(CurrentUser);
 				if (UserRow == NULL)
 				{
 					const FString NickName(UTF8_TO_TCHAR(SteamFriends()->GetFriendPersonaName(LeaderboardEntry.m_steamIDUser)));
-					FUniqueNetIdRef UserId = FUniqueNetIdSteam::Create(LeaderboardEntry.m_steamIDUser);
+					TSharedRef<const FUniqueNetId> UserId = MakeShareable(new FUniqueNetIdSteam(LeaderboardEntry.m_steamIDUser));
 					UserRow = new (ReadObject->Rows) FOnlineStatsRow(NickName, UserId);
 				}
 
@@ -981,7 +1010,7 @@ public:
 				// This is fine to start now because we are still on the game thread.
 				if (Type != RetrieveType::FetchUsers && Type != RetrieveType::FetchRankUser)
 				{
-					FOnlineAsyncTaskSteamRetrieveStats* NewStatsTask = new FOnlineAsyncTaskSteamRetrieveStats(Subsystem, *CurrentUser, 
+					FOnlineAsyncTaskSteamRetrieveStats* NewStatsTask = new FOnlineAsyncTaskSteamRetrieveStats(Subsystem, CurrentUser, 
 						ReadObject, (EntryIdx + 1 == CallbackResults.m_cEntryCount));
 
 					Subsystem->QueueAsyncTask(NewStatsTask);
@@ -1009,15 +1038,16 @@ public:
 		FVariantData EmptyData;
  		for (int32 UserIdx=0; UserIdx<Players.Num(); UserIdx++)
  		{
- 			const FUniqueNetIdRef& CurrentUser = Players[UserIdx];
+ 			FUniqueNetIdSteam CurrentUser(*(uint64*)Players[UserIdx]->GetBytes());
  			if (PlayersHaveStats.Find(CurrentUser) == NULL)
  			{
-				FOnlineStatsRow* UserRow = ReadObject->FindPlayerRecord(*CurrentUser);
+				FOnlineStatsRow* UserRow = ReadObject->FindPlayerRecord(CurrentUser);
 				if (UserRow == NULL)
 				{
-					const FUniqueNetIdSteam& SteamId = FUniqueNetIdSteam::Cast(*CurrentUser);
+					CSteamID SteamId(*(uint64*)CurrentUser.GetBytes());
 					const FString NickName(UTF8_TO_TCHAR(SteamFriends()->GetFriendPersonaName(SteamId)));
-					UserRow = new (ReadObject->Rows) FOnlineStatsRow(NickName, SteamId.AsShared());
+					TSharedRef<const FUniqueNetId> UserId = MakeShareable(new FUniqueNetIdSteam(SteamId));
+					UserRow = new (ReadObject->Rows) FOnlineStatsRow(NickName, UserId);
 
 					// Don't process this for arbitrary list fetches as that automatically starts 
 					// FOnlineAsyncTaskSteamRetrieveStats tasks
@@ -1218,14 +1248,14 @@ protected:
 	/** Name of session stats were written to (unused in Steam) */
 	const FName SessionName;
 	/** User this store is for */
-	const FUniqueNetIdSteamRef UserId;
+	const FUniqueNetIdSteam UserId;
 
 	/** Hidden on purpose */
 	FOnlineAsyncTaskSteamStoreStats() :
 		FOnlineAsyncTaskSteam(NULL, k_uAPICallInvalid),
 		bInit(false),
 		SessionName(NAME_None),
-		UserId(FUniqueNetIdSteam::EmptyId())
+		UserId(0)
 	{
 	}
 
@@ -1252,7 +1282,7 @@ public:
 		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
 		bInit(false),
 		SessionName(InSessionName),
-		UserId(InUserId.AsShared())
+		UserId(InUserId)
 	{
 	}
 
@@ -1394,11 +1424,11 @@ public:
 		FOnlineAsyncTaskSteam::TriggerDelegates();
 		
 		FOnlineAchievementsSteamPtr Achievements = StaticCastSharedPtr<FOnlineAchievementsSteam>(Subsystem->GetAchievementsInterface());
-		Achievements->OnWriteAchievementsComplete(*UserId, bWasSuccessful, WriteObject, OnWriteFinishedDelegate);
+		Achievements->OnWriteAchievementsComplete(UserId, bWasSuccessful, WriteObject, OnWriteFinishedDelegate);
 	}
 };
 
-bool FOnlineLeaderboardsSteam::ReadLeaderboards(const TArray< FUniqueNetIdRef >& Players, FOnlineLeaderboardReadRef& ReadObject)
+bool FOnlineLeaderboardsSteam::ReadLeaderboards(const TArray< TSharedRef<const FUniqueNetId> >& Players, FOnlineLeaderboardReadRef& ReadObject)
 {
 	ReadObject->ReadState = EOnlineAsyncTaskState::InProgress;
 
@@ -1417,7 +1447,7 @@ bool FOnlineLeaderboardsSteam::ReadLeaderboards(const TArray< FUniqueNetIdRef >&
 	for (int32 UserIdx=0; UserIdx < NumPlayers; UserIdx++)
 	{
 		bool bLastPlayer = (UserIdx == NumPlayers-1) ? true : false;
-		const FUniqueNetIdSteam& UserId = FUniqueNetIdSteam::Cast(*Players[UserIdx]);
+		FUniqueNetIdSteam UserId(*(uint64*)Players[UserIdx]->GetBytes());
 		FOnlineAsyncTaskSteamRetrieveStats* NewStatsTask = new FOnlineAsyncTaskSteamRetrieveStats(SteamSubsystem, UserId, ReadObject, bLastPlayer);
 		SteamSubsystem->QueueAsyncTask(NewStatsTask);
 	}
@@ -1440,7 +1470,7 @@ bool FOnlineLeaderboardsSteam::ReadLeaderboardsAroundRank(int32 Rank, uint32 Ran
 
 	return true;
 }
-bool FOnlineLeaderboardsSteam::ReadLeaderboardsAroundUser(FUniqueNetIdRef Player, uint32 Range, FOnlineLeaderboardReadRef& ReadObject)
+bool FOnlineLeaderboardsSteam::ReadLeaderboardsAroundUser(TSharedRef<const FUniqueNetId> Player, uint32 Range, FOnlineLeaderboardReadRef& ReadObject)
 {
 	ReadObject->ReadState = EOnlineAsyncTaskState::InProgress;
 
@@ -1510,7 +1540,7 @@ bool FOnlineLeaderboardsSteam::WriteLeaderboards(const FName& SessionName, const
 		}
 	}
 
-	const FUniqueNetIdSteam& UserId = FUniqueNetIdSteam::Cast(Player);
+	FUniqueNetIdSteam UserId(*(uint64*)Player.GetBytes());
 	FOnlineAsyncTaskSteamUpdateStats* NewUpdateStatsTask = new FOnlineAsyncTaskSteamUpdateStats(SteamSubsystem, UserId, LeaderboardStats);
 	SteamSubsystem->QueueAsyncTask(NewUpdateStatsTask);
 
@@ -1535,8 +1565,8 @@ void FOnlineLeaderboardsSteam::WriteAchievementsInternal(const FUniqueNetIdSteam
 
 bool FOnlineLeaderboardsSteam::FlushLeaderboards(const FName& SessionName)
 {
-	const FUniqueNetIdSteamRef UserId = FUniqueNetIdSteam::Create(SteamUser()->GetSteamID());
-	FOnlineAsyncTaskSteamFlushLeaderboards* NewTask = new FOnlineAsyncTaskSteamFlushLeaderboards(SteamSubsystem, SessionName, *UserId);
+	FUniqueNetIdSteam UserId(SteamUser()->GetSteamID());
+	FOnlineAsyncTaskSteamFlushLeaderboards* NewTask = new FOnlineAsyncTaskSteamFlushLeaderboards(SteamSubsystem, SessionName, UserId);
 	SteamSubsystem->QueueAsyncTask(NewTask);
 	return true;
 }
@@ -1606,4 +1636,888 @@ void FOnlineLeaderboardsSteam::CacheCurrentUsersStats()
 	SteamUserStats()->RequestCurrentStats();
 
 	// TODO ONLINE - Need to validate this on user login and invalidate on user logout
+}
+
+/**
+*	Async task to retrieve a single user's stats from Steam
+*/
+class FOnlineAsyncTaskReadCurrentStats : public FOnlineAsyncTaskSteam
+{
+private:
+
+	/** Has this task been initialized yet */
+	bool bInit;
+	/** User to retrieve stats for */
+	FUniqueNetIdSteam UserId;
+	/** Handle to the read object where the data will be stored */
+	FOnlineStatsReadPtr ReadObject;
+	/** Returned results from Steam */
+	UserStatsReceived_t CallbackResults;
+	/** Steam Stat Names to retrieve */
+	const TArray<FName> StatNames;
+	/** if true, will Fire The delegate with the UserId parameter */
+	bool bTriggerUserSpecificDelegate;
+
+	/** Hidden on purpose */
+	FOnlineAsyncTaskReadCurrentStats() :
+		FOnlineAsyncTaskSteam(nullptr, k_uAPICallInvalid),
+		bInit(false),
+		UserId(0),
+		ReadObject(nullptr),
+		bTriggerUserSpecificDelegate(false)
+	{
+	}
+
+public:
+
+	FOnlineAsyncTaskReadCurrentStats(FOnlineSubsystemSteam* InSteamSubsystem, const FOnlineStatsReadRef& InReadObject, const FUniqueNetIdSteam& InUserId, const TArray<FName>& InStatNames, bool ShouldTriggerUserSpecificDelegate = false) :
+		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
+		bInit(false),
+		UserId(InUserId),
+		ReadObject(InReadObject),
+		StatNames(InStatNames),
+		bTriggerUserSpecificDelegate(ShouldTriggerUserSpecificDelegate)
+	{
+	}
+
+	/**
+	*	Get a human readable description of task
+	*/
+	FString ToString() const override
+	{
+		return FString::Printf(TEXT("FOnlineAsyncTaskReadCurrentStats bWasSuccessful: %d"), (bool) bWasSuccessful);
+	}
+
+	/**
+	* Give the async task time to do its work
+	* Can only be called on the async task manager thread
+	*/
+	virtual void Tick() override
+	{
+		if (!bInit)
+		{
+			// Triggers a Steam event async to let us know when the stats are available
+			CallbackHandle = SteamUserStats()->RequestUserStats(*(uint64*)UserId.GetBytes());
+			bInit = true;
+		}
+
+		if (CallbackHandle != k_uAPICallInvalid)
+		{
+			ISteamUtils* SteamUtilsPtr = SteamUtils();
+			bool bFailedCall = false;
+
+			// Poll for completion status
+			bIsComplete = SteamUtilsPtr->IsAPICallCompleted(CallbackHandle, &bFailedCall);
+			if (bIsComplete)
+			{
+				bool bFailedResult;
+				// Retrieve the callback data from the request
+				bool bSuccessCallResult = SteamUtilsPtr->GetAPICallResult(CallbackHandle, &CallbackResults, sizeof(CallbackResults), CallbackResults.k_iCallback, &bFailedResult);
+				bWasSuccessful = bSuccessCallResult && !bFailedCall && !bFailedResult;
+			}
+		}
+		else
+		{
+			bWasSuccessful = false;
+			bIsComplete = true;
+		}
+	}
+
+	/**
+	* Give the async task a chance to marshal its data back to the game thread
+	* Can only be called on the game thread by the async task manager
+	*/
+	virtual void Finalize() override
+	{
+		FOnlineAsyncTaskSteam::Finalize();
+
+		ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
+		check(SteamUserStatsPtr);
+
+		if (bWasSuccessful)
+		{
+			if (CallbackResults.m_eResult != k_EResultOK)
+			{
+				ReadObject->Properties.Empty();
+				bWasSuccessful = false;
+			}
+			else
+			{
+				bool bSuccess = true;
+				int32 Value;
+
+				for (int i = 0, iMax = StatNames.Num(); i < iMax; ++i)
+				{
+					bSuccess &= SteamUserStatsPtr->GetUserStat(*(uint64*)UserId.GetBytes(), TCHAR_TO_UTF8(*StatNames[i].ToString()), &Value);
+					ReadObject->SetIntStat(StatNames[i], Value);
+				}
+
+				if (!bSuccess)
+				{
+					ReadObject->Properties.Empty();
+					bWasSuccessful = false;
+				}
+			}
+		}
+
+		// Update the read state of this object
+		ReadObject->ReadState = (bWasSuccessful && ReadObject->ReadState != EOnlineAsyncTaskState::Failed) ? EOnlineAsyncTaskState::Done : EOnlineAsyncTaskState::Failed;
+	}
+
+	/**
+	*	Async task is given a chance to trigger it's delegates
+	*/
+	virtual void TriggerDelegates() override
+	{
+		FOnlineAsyncTaskSteam::TriggerDelegates();
+
+		FOnlineLeaderboardsSteamPtr Leaderboards = StaticCastSharedPtr<FOnlineLeaderboardsSteam>(Subsystem->GetLeaderboardsInterface());
+		if (bTriggerUserSpecificDelegate)
+		{
+			Leaderboards->TriggerOnUserStatsReadCompleteDelegates(ReadObject->ReadState == EOnlineAsyncTaskState::Done ? true : false, UserId);
+		}
+		else
+		{
+			Leaderboards->TriggerOnStatsReadCompleteDelegates(ReadObject->ReadState == EOnlineAsyncTaskState::Done ? true : false);
+		}
+	}
+};
+
+bool FOnlineLeaderboardsSteam::ReadCurrentStats(const TArray<FName>& StatNames, FOnlineStatsReadRef& ReadObject)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return false;
+	}
+
+	ReadObject->ReadState = EOnlineAsyncTaskState::InProgress;
+
+	// Clear out any existing data
+	ReadObject->Properties.Empty();
+	FUniqueNetIdSteam UserId(SteamUser()->GetSteamID());
+
+	// Retrieve the stats data
+	auto* NewStatsTask = new FOnlineAsyncTaskReadCurrentStats(SteamSubsystem, ReadObject, UserId, StatNames, false);
+	SteamSubsystem->QueueAsyncTask(NewStatsTask);
+
+	return true;
+}
+
+bool FOnlineLeaderboardsSteam::ReadUserStats(const TArray<FName>& StatNames, FOnlineStatsReadRef& ReadObject, const FUniqueNetId& User)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return false;
+	}
+
+	ReadObject->ReadState = EOnlineAsyncTaskState::InProgress;
+
+	// Clear out any existing data
+	ReadObject->Properties.Empty();
+
+	// Retrieve the stats data
+	auto* NewStatsTask = new FOnlineAsyncTaskReadCurrentStats(SteamSubsystem, ReadObject, FUniqueNetIdSteam(User), StatNames, true);
+	SteamSubsystem->QueueAsyncTask(NewStatsTask);
+
+	return true;
+}
+
+/**
+*	Async task to write a single user's stats to Steam
+*/
+class FOnlineAsyncTaskWriteCurrentStats : public FOnlineAsyncTaskSteamStoreStats
+{
+private:
+	/** Handle to the read object where the data will be stored */
+	FOnlineStatsPtr WriteObject;
+	/** Steam Stat Names to write */
+	const TArray<FName> StatNames;
+
+	/** Hidden on purpose */
+	FOnlineAsyncTaskWriteCurrentStats() :
+		FOnlineAsyncTaskSteamStoreStats(),
+		WriteObject(nullptr)
+	{
+	}
+
+public:
+	FOnlineAsyncTaskWriteCurrentStats(FOnlineSubsystemSteam* InSteamSubsystem, const FOnlineStatsRef& InWriteObject, const TArray<FName>& InStatNames) :
+		FOnlineAsyncTaskSteamStoreStats(InSteamSubsystem, NAME_None, FUniqueNetIdSteam(0)),
+		WriteObject(InWriteObject),
+		StatNames(InStatNames)
+	{
+	}
+
+	/**
+	*	Get a human readable description of task
+	*/
+	FString ToString() const override
+	{
+		return FString::Printf(TEXT("FOnlineAsyncTaskReadCurrentStats bWasSuccessful: %d"), (bool) bWasSuccessful);
+	}
+
+	/**
+	* Give the async task time to do its work
+	* Can only be called on the async task manager thread
+	*/
+	virtual void Tick() override
+	{
+		bool bSuccess = true;
+
+		if (!bInit)
+		{
+			ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
+			int32 Value;
+
+			for (int i = 0, iMax = StatNames.Num(); i < iMax; ++i)
+			{
+				WriteObject->Properties.Find(StatNames[i])->GetValue(Value);
+				bSuccess &= SteamUserStatsPtr->SetStat(TCHAR_TO_UTF8(*StatNames[i].ToString()), Value);
+			}
+
+			if (!bSuccess)
+			{
+				bInit = true;
+				OnUserStatsStoreStatsFinished(EOnlineAsyncTaskState::Failed);
+			}
+		}
+
+		FOnlineAsyncTaskSteamStoreStats::Tick();
+	}
+
+	/**
+	*	Async task is given a chance to trigger it's delegates
+	*/
+	virtual void TriggerDelegates() override
+	{
+		FOnlineAsyncTaskSteam::TriggerDelegates();
+
+		FOnlineLeaderboardsSteamPtr Leaderboards = StaticCastSharedPtr<FOnlineLeaderboardsSteam>(Subsystem->GetLeaderboardsInterface());
+		Leaderboards->TriggerOnStatsWriteCompleteDelegates(bWasSuccessful);
+	}
+};
+
+bool FOnlineLeaderboardsSteam::WriteCurrentStats(const TArray<FName>& StatNames, FOnlineStatsRef& WriteObject)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return false;
+	}
+
+	// Submit stats data
+	auto* NewStatsTask = new FOnlineAsyncTaskWriteCurrentStats(SteamSubsystem, WriteObject, StatNames);
+	SteamSubsystem->QueueAsyncTask(NewStatsTask);
+	return true;
+}
+
+bool FOnlineLeaderboardsSteam::UnlockAchievement(const FName& AchievementAPIName)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return false;
+	}
+
+	bool alreadyHasAchievement = false;
+	SteamUserStats()->GetAchievement(TCHAR_TO_UTF8(*AchievementAPIName.ToString()), &alreadyHasAchievement);
+
+	if (alreadyHasAchievement)
+	{
+		return false;
+	}
+
+	return SteamUserStats()->SetAchievement(TCHAR_TO_UTF8(*AchievementAPIName.ToString()));
+}
+
+bool FOnlineLeaderboardsSteam::UserHasAchievement(const FUniqueNetId& User, const FName& AchievementAPIName, bool& AchievedOut)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return false;
+	}
+
+	return SteamUserStats()->GetUserAchievement(*(uint64*)User.GetBytes(), TCHAR_TO_UTF8(*AchievementAPIName.ToString()), &AchievedOut);
+}
+
+bool FOnlineLeaderboardsSteam::ResetAllStats(bool ResetAchievementsAlso)
+{
+	return SteamSubsystem != nullptr && SteamSubsystem->IsSteamClientAvailable() && SteamUserStats()->ResetAllStats(ResetAchievementsAlso);
+}
+
+bool FOnlineLeaderboardsSteam::IsDLCInstalled(uint32 DLCAppId)
+{
+	return SteamSubsystem != nullptr && SteamSubsystem->IsSteamClientAvailable() && SteamApps()->BIsDlcInstalled(DLCAppId);
+}
+
+/**
+*	Async task to retrieve actual leaderboard entries for list of users from Steam.
+*/
+class FOnlineAsyncTaskSteamRetrieveLeaderboardEntriesForUsers : public FOnlineAsyncTaskSteam
+{
+private:
+
+	/** Has this request been started */
+	bool bInit;
+	/** Leaderboard name to retrieve data from */
+	const FName LeaderboardName;
+	/** Players to request leaderboard data for */
+	const TArray<TSharedRef<const FUniqueNetId>> Players;
+	/** Handle to the read object where the data will be stored */
+	const FLOnlineLeaderboardReadRef ReadObject;
+	/** Number of metadata numbers to receive */
+	const int32 NumMetadata;
+	/** Results from callback */
+	LeaderboardScoresDownloaded_t CallbackResults;
+
+public:
+	FOnlineAsyncTaskSteamRetrieveLeaderboardEntriesForUsers(FOnlineSubsystemSteam* InSteamSubsystem, const FName& InLeaderboardName, const TArray<TSharedRef<const FUniqueNetId>>& InPlayers, const FLOnlineLeaderboardReadRef& InReadObject, const int32 InNumMetadata) :
+		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
+		bInit(false),
+		LeaderboardName(InLeaderboardName),
+		Players(InPlayers),
+		ReadObject(InReadObject),
+		NumMetadata(InNumMetadata)
+	{
+	}
+
+	/**
+	*	Get a human readable description of task
+	*/
+	FString ToString() const override
+	{
+		return FString::Printf(TEXT("FOnlineAsyncTaskSteamRetrieveLeaderboardEntriesForUsers bWasSuccessful: %d"), (bool)bWasSuccessful);
+	}
+
+	/**
+	* Give the async task time to do its work
+	* Can only be called on the async task manager thread
+	*/
+	virtual void Tick() override
+	{
+		ISteamUtils* SteamUtilsPtr = SteamUtils();
+		check(SteamUtilsPtr);
+
+		if (!bInit)
+		{
+			// Poll for leaderboard handle
+			SteamLeaderboard_t LeaderboardHandle = -1;
+			{
+				FOnlineLeaderboardsSteamPtr Leaderboards = StaticCastSharedPtr<FOnlineLeaderboardsSteam>(Subsystem->GetLeaderboardsInterface());
+				FScopeLock ScopeLock(&Leaderboards->LeaderboardMetadataLock);
+				FLeaderboardMetadataSteam* Leaderboard = Leaderboards->GetLeaderboardMetadata(LeaderboardName);
+				if (Leaderboard)
+				{
+					LeaderboardHandle = Leaderboard->LeaderboardHandle;
+					ReadObject->TotalNumRows = Leaderboard->TotalLeaderboardRows;
+				}
+			}
+
+			if (LeaderboardHandle != -1)
+			{
+				ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
+				// Max leaderboard entries is 100
+				int32 NumUsers = FPlatformMath::Min(Players.Num(), 100);
+				CSteamID* IdArray = new CSteamID[NumUsers];
+				for (int32 UserIdx = 0; UserIdx < NumUsers; UserIdx++)
+				{
+					IdArray[UserIdx] = *(uint64*)Players[UserIdx]->GetBytes();
+				}
+				CallbackHandle = SteamUserStatsPtr->DownloadLeaderboardEntriesForUsers(LeaderboardHandle, IdArray, NumUsers);
+
+				delete[] IdArray;
+				IdArray = nullptr;
+				bInit = true;
+			}
+		}
+
+		if (CallbackHandle != k_uAPICallInvalid)
+		{
+			bool bFailedCall = false;
+
+			// Poll for completion status
+			bIsComplete = SteamUtilsPtr->IsAPICallCompleted(CallbackHandle, &bFailedCall) ? true : false;
+			if (bIsComplete)
+			{
+				bool bFailedResult;
+				// Retrieve the callback data from the request
+				bool bSuccessCallResult = SteamUtilsPtr->GetAPICallResult(CallbackHandle, &CallbackResults, sizeof(CallbackResults), CallbackResults.k_iCallback, &bFailedResult);
+				bWasSuccessful = (bSuccessCallResult ? true : false) &&
+					(!bFailedCall ? true : false) &&
+					(!bFailedResult ? true : false) &&
+					((CallbackResults.m_hSteamLeaderboard != -1) ? true : false);
+			}
+		}
+		else if (bInit)
+		{
+			// Invalid API call
+			bIsComplete = true;
+			bWasSuccessful = false;
+		}
+	}
+
+	/**
+	* Give the async task a chance to marshal its data back to the game thread
+	* Can only be called on the game thread by the async task manager
+	*/
+	virtual void Finalize() override
+	{
+		FOnlineAsyncTaskSteam::Finalize();
+
+		ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
+		for (int32 EntryIdx = 0; EntryIdx < CallbackResults.m_cEntryCount; EntryIdx++)
+		{
+			LeaderboardEntry_t LeaderboardEntry;
+
+			int32* metadataArray = nullptr;
+
+			if (NumMetadata > 0)
+			{
+				metadataArray = new int32[NumMetadata];
+			}
+
+			if (SteamUserStatsPtr->GetDownloadedLeaderboardEntry(CallbackResults.m_hSteamLeaderboardEntries, EntryIdx, &LeaderboardEntry, metadataArray, NumMetadata))
+			{
+				FUniqueNetIdSteam CurrentUser(LeaderboardEntry.m_steamIDUser);
+				const FString NickName(UTF8_TO_TCHAR(SteamFriends()->GetFriendPersonaName(LeaderboardEntry.m_steamIDUser)));
+				TSharedRef<const FUniqueNetId> UserId = MakeShareable(new FUniqueNetIdSteam(LeaderboardEntry.m_steamIDUser));
+				TArray<int32> ScoreMetadata;
+				for (int32 i = 0, iMax = NumMetadata; i < iMax; ++i)
+				{
+					ScoreMetadata.Add(metadataArray[i]);
+				}
+				new (ReadObject->Rows) FLOnlineLeaderboardRow(NickName, UserId, LeaderboardEntry.m_nGlobalRank, LeaderboardEntry.m_nScore, ScoreMetadata);
+			}
+
+			if (metadataArray != nullptr)
+			{
+				delete[] metadataArray;
+				metadataArray = nullptr;
+			}
+		}
+	}
+
+	/**
+	*	Async task is given a chance to trigger it's delegates
+	*/
+	virtual void TriggerDelegates() override
+	{
+		FOnlineAsyncTaskSteam::TriggerDelegates();
+
+		FOnlineLeaderboardsSteamPtr Leaderboards = StaticCastSharedPtr<FOnlineLeaderboardsSteam>(Subsystem->GetLeaderboardsInterface());
+		Leaderboards->TriggerLOnLeaderboardReadCompleteDelegates(bWasSuccessful);
+	}
+};
+
+bool FOnlineLeaderboardsSteam::ReadLeaderboard(const FName& LeaderboardName, const TArray<TSharedRef<const FUniqueNetId>>& Users, FLOnlineLeaderboardReadRef& ReadObject, const int32 NumMetadata)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return false;
+	}
+
+	// Clear out any existing data
+	ReadObject->Rows.Empty();
+	ReadObject->TotalNumRows = 0;
+
+	// Will retrieve the leaderboard, making async calls as appropriate
+	FindLeaderboard(LeaderboardName);
+
+	// Retrieve the leaderboard data
+	auto NewLeaderboardTask = new FOnlineAsyncTaskSteamRetrieveLeaderboardEntriesForUsers(SteamSubsystem, LeaderboardName, Users, ReadObject, NumMetadata);
+	SteamSubsystem->QueueAsyncTask(NewLeaderboardTask);
+
+	return true;
+}
+
+/**
+*	Async task to retrieve actual ranged leaderboard entries from Steam.
+*/
+class FOnlineAsyncTaskSteamRetrieveLeaderboardEntriesRanged : public FOnlineAsyncTaskSteam
+{
+private:
+
+	/** Has this request been started */
+	bool bInit;
+	/** Leaderboard name to retrieve data from */
+	const FName LeaderboardName;
+	/** Leaderboard data range start */
+	const int32 RangeStart;
+	/** Leaderboard data range end */
+	const int32 RangeEnd;
+	/** Leaderboard data request method */
+	const ELeaderboardDataRequest LeaderboardDataRequest;
+	/** Handle to the read object where the data will be stored */
+	const FLOnlineLeaderboardReadRef ReadObject;
+	/** Number of metadata numbers to receive */
+	const int32 NumMetadata;
+	/** Results from callback */
+	LeaderboardScoresDownloaded_t CallbackResults;
+
+public:
+	FOnlineAsyncTaskSteamRetrieveLeaderboardEntriesRanged(FOnlineSubsystemSteam* InSteamSubsystem, const FName& InLeaderboardName, const int32 InRangeStart, const int32 InRangeEnd, const ELeaderboardDataRequest InLeaderboardDataRequest, const FLOnlineLeaderboardReadRef& InReadObject, const int32 InNumMetadata) :
+		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
+		bInit(false),
+		LeaderboardName(InLeaderboardName),
+		RangeStart(InRangeStart),
+		RangeEnd(InRangeEnd),
+		LeaderboardDataRequest(InLeaderboardDataRequest),
+		ReadObject(InReadObject),
+		NumMetadata(InNumMetadata)
+	{
+	}
+
+	/**
+	*	Get a human readable description of task
+	*/
+	FString ToString() const override
+	{
+		return FString::Printf(TEXT("FOnlineAsyncTaskSteamRetrieveLeaderboardEntriesRanged bWasSuccessful: %d"), (bool)bWasSuccessful);
+	}
+
+	/**
+	* Give the async task time to do its work
+	* Can only be called on the async task manager thread
+	*/
+	virtual void Tick() override
+	{
+		ISteamUtils* SteamUtilsPtr = SteamUtils();
+		check(SteamUtilsPtr);
+
+		if (!bInit)
+		{
+			// Poll for leaderboard handle
+			SteamLeaderboard_t LeaderboardHandle = -1;
+			{
+				FOnlineLeaderboardsSteamPtr Leaderboards = StaticCastSharedPtr<FOnlineLeaderboardsSteam>(Subsystem->GetLeaderboardsInterface());
+				FScopeLock ScopeLock(&Leaderboards->LeaderboardMetadataLock);
+				FLeaderboardMetadataSteam* Leaderboard = Leaderboards->GetLeaderboardMetadata(LeaderboardName);
+				if (Leaderboard)
+				{
+					LeaderboardHandle = Leaderboard->LeaderboardHandle;
+					ReadObject->TotalNumRows = Leaderboard->TotalLeaderboardRows;
+				}
+			}
+
+			if (LeaderboardHandle != -1)
+			{
+				ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
+				CallbackHandle = SteamUserStatsPtr->DownloadLeaderboardEntries(LeaderboardHandle, LeaderboardDataRequest, RangeStart, RangeEnd);
+
+				bInit = true;
+			}
+		}
+
+		if (CallbackHandle != k_uAPICallInvalid)
+		{
+			bool bFailedCall = false;
+
+			// Poll for completion status
+			bIsComplete = SteamUtilsPtr->IsAPICallCompleted(CallbackHandle, &bFailedCall) ? true : false;
+			if (bIsComplete)
+			{
+				bool bFailedResult;
+				// Retrieve the callback data from the request
+				bool bSuccessCallResult = SteamUtilsPtr->GetAPICallResult(CallbackHandle, &CallbackResults, sizeof(CallbackResults), CallbackResults.k_iCallback, &bFailedResult);
+				bWasSuccessful = (bSuccessCallResult ? true : false) &&
+					(!bFailedCall ? true : false) &&
+					(!bFailedResult ? true : false) &&
+					((CallbackResults.m_hSteamLeaderboard != -1) ? true : false);
+			}
+		}
+		else if (bInit)
+		{
+			// Invalid API call
+			bIsComplete = true;
+			bWasSuccessful = false;
+		}
+	}
+
+	/**
+	* Give the async task a chance to marshal its data back to the game thread
+	* Can only be called on the game thread by the async task manager
+	*/
+	virtual void Finalize() override
+	{
+		FOnlineAsyncTaskSteam::Finalize();
+
+		ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
+		for (int32 EntryIdx = 0; EntryIdx < CallbackResults.m_cEntryCount; EntryIdx++)
+		{
+			LeaderboardEntry_t LeaderboardEntry;
+
+			int32* metadataArray = nullptr;
+
+			if (NumMetadata > 0)
+			{
+				metadataArray = new int32[NumMetadata];
+			}
+
+			if (SteamUserStatsPtr->GetDownloadedLeaderboardEntry(CallbackResults.m_hSteamLeaderboardEntries, EntryIdx, &LeaderboardEntry, metadataArray, NumMetadata))
+			{
+				FUniqueNetIdSteam CurrentUser(LeaderboardEntry.m_steamIDUser);
+				const FString NickName(UTF8_TO_TCHAR(SteamFriends()->GetFriendPersonaName(LeaderboardEntry.m_steamIDUser)));
+				TSharedRef<const FUniqueNetId> UserId = MakeShareable(new FUniqueNetIdSteam(LeaderboardEntry.m_steamIDUser));
+				TArray<int32> ScoreMetadata;
+				for (int32 i = 0, iMax = NumMetadata; i < iMax; ++i)
+				{
+					ScoreMetadata.Add(metadataArray[i]);
+				}
+				new (ReadObject->Rows) FLOnlineLeaderboardRow(NickName, UserId, LeaderboardEntry.m_nGlobalRank, LeaderboardEntry.m_nScore, ScoreMetadata);
+			}
+
+			if (metadataArray != nullptr)
+			{
+				delete[] metadataArray;
+				metadataArray = nullptr;
+			}
+		}
+	}
+
+	/**
+	*	Async task is given a chance to trigger it's delegates
+	*/
+	virtual void TriggerDelegates() override
+	{
+		FOnlineAsyncTaskSteam::TriggerDelegates();
+
+		FOnlineLeaderboardsSteamPtr Leaderboards = StaticCastSharedPtr<FOnlineLeaderboardsSteam>(Subsystem->GetLeaderboardsInterface());
+		Leaderboards->TriggerLOnLeaderboardReadCompleteDelegates(bWasSuccessful);
+	}
+};
+
+bool FOnlineLeaderboardsSteam::ReadLeaderboard(const FName& LeaderboardName, const int32 RangeAroundCurrentUser, FLOnlineLeaderboardReadRef& ReadObject, const int32 NumMetadata)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return false;
+	}
+
+	// Clear out any existing data
+	ReadObject->Rows.Empty();
+	ReadObject->TotalNumRows = 0;
+
+	// Will retrieve the leaderboard, making async calls as appropriate
+	FindLeaderboard(LeaderboardName);
+
+	// Retrieve the leaderboard data
+	auto NewLeaderboardTask = new FOnlineAsyncTaskSteamRetrieveLeaderboardEntriesRanged(SteamSubsystem, LeaderboardName, -RangeAroundCurrentUser, RangeAroundCurrentUser, k_ELeaderboardDataRequestGlobalAroundUser, ReadObject, NumMetadata);
+	SteamSubsystem->QueueAsyncTask(NewLeaderboardTask);
+
+	return true;
+}
+
+bool FOnlineLeaderboardsSteam::ReadLeaderboard(const FName& LeaderboardName, const int32 StartRank, const int32 EndRank, FLOnlineLeaderboardReadRef& ReadObject, const int32 NumMetadata)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return false;
+	}
+
+	// Clear out any existing data
+	ReadObject->Rows.Empty();
+	ReadObject->TotalNumRows = 0;
+
+	// Will retrieve the leaderboard, making async calls as appropriate
+	FindLeaderboard(LeaderboardName);
+
+	// Retrieve the leaderboard data
+	auto NewLeaderboardTask = new FOnlineAsyncTaskSteamRetrieveLeaderboardEntriesRanged(SteamSubsystem, LeaderboardName, StartRank, EndRank, k_ELeaderboardDataRequestGlobal, ReadObject, NumMetadata);
+	SteamSubsystem->QueueAsyncTask(NewLeaderboardTask);
+
+	return true;
+}
+
+/**
+*	Update a single leaderboard for the signed in user, Steam does not allow others to write for you
+*/
+class FLOnlineAsyncTaskSteamUpdateLeaderboard : public FOnlineAsyncTaskSteam
+{
+private:
+
+	/** Has this request been started */
+	bool bInit;
+	/** Name of leaderboard to update */
+	const FName LeaderboardName;
+	/** Score that will replace/update the existing value on the leaderboard */
+	const int32 NewScore;
+	/** Method of update against the previous score */
+	const ELeaderboardUpdateMethod::Type UpdateMethod;
+	/** Additional data about the score */
+	const TArray<int32> ScoreMetadata;
+	/** Results returned from Steam backend */
+	LeaderboardScoreUploaded_t CallbackResults;
+
+	FLOnlineAsyncTaskSteamUpdateLeaderboard() :
+		FOnlineAsyncTaskSteam(NULL, k_uAPICallInvalid),
+		bInit(false),
+		LeaderboardName(NAME_None),
+		NewScore(0),
+		UpdateMethod(ELeaderboardUpdateMethod::KeepBest)
+	{
+	}
+
+public:
+	FLOnlineAsyncTaskSteamUpdateLeaderboard(FOnlineSubsystemSteam* InSteamSubsystem, const FName& InLeaderboardName, const int32 InNewScore, ELeaderboardUpdateMethod::Type InUpdateMethod, const TArray<int32>& InScoreMetadata) :
+		FOnlineAsyncTaskSteam(InSteamSubsystem, k_uAPICallInvalid),
+		bInit(false),
+		LeaderboardName(InLeaderboardName),
+		NewScore(InNewScore),
+		UpdateMethod(InUpdateMethod),
+		ScoreMetadata(InScoreMetadata)
+	{
+	}
+
+	/**
+	*	Get a human readable description of task
+	*/
+	virtual FString ToString() const override
+	{
+		return FString::Printf(TEXT("FLOnlineAsyncTaskSteamUpdateLeaderboard bWasSuccessful: %d Leaderboard: %s Score: %d"), (bool)bWasSuccessful, *LeaderboardName.ToString(), NewScore);
+	}
+
+	/**
+	* Give the async task time to do its work
+	* Can only be called on the async task manager thread
+	*/
+	virtual void Tick() override
+	{
+		ISteamUtils* SteamUtilsPtr = SteamUtils();
+		check(SteamUtilsPtr);
+
+		if (!bInit)
+		{
+			// Poll for leaderboard handle
+			SteamLeaderboard_t LeaderboardHandle = -1;
+			{
+				FOnlineLeaderboardsSteamPtr Leaderboards = StaticCastSharedPtr<FOnlineLeaderboardsSteam>(Subsystem->GetLeaderboardsInterface());
+				FScopeLock ScopeLock(&Leaderboards->LeaderboardMetadataLock);
+				FLeaderboardMetadataSteam* Leaderboard = Leaderboards->GetLeaderboardMetadata(LeaderboardName);
+				if (Leaderboard)
+				{
+					LeaderboardHandle = Leaderboard->LeaderboardHandle;
+				}
+			}
+
+			if (LeaderboardHandle != -1)
+			{
+				ISteamUserStats* SteamUserStatsPtr = SteamUserStats();
+				check(SteamUserStatsPtr);
+
+				ELeaderboardUploadScoreMethod UpdateMethodSteam;
+				switch (UpdateMethod)
+				{
+				case ELeaderboardUpdateMethod::Force:
+					UpdateMethodSteam = k_ELeaderboardUploadScoreMethodForceUpdate;
+					break;
+				case ELeaderboardUpdateMethod::KeepBest:
+				default:
+					UpdateMethodSteam = k_ELeaderboardUploadScoreMethodKeepBest;
+					break;
+				}
+
+				int32* metadataArray = nullptr;
+
+				if (ScoreMetadata.Num() > 0)
+				{
+					metadataArray = new int32[ScoreMetadata.Num()];
+					for (int32 i = 0, iMax = ScoreMetadata.Num(); i < iMax; ++i)
+					{
+						metadataArray[i] = ScoreMetadata[i];
+					}
+				}
+
+				CallbackHandle = SteamUserStatsPtr->UploadLeaderboardScore(LeaderboardHandle, UpdateMethodSteam, NewScore, metadataArray, ScoreMetadata.Num());
+
+				if (metadataArray != nullptr)
+				{
+					delete[] metadataArray;
+					metadataArray = nullptr;
+				}
+				bInit = true;
+			}
+		}
+
+		if (CallbackHandle != k_uAPICallInvalid)
+		{
+			bool bFailedCall = false;
+
+			// Poll for completion status
+			bIsComplete = SteamUtilsPtr->IsAPICallCompleted(CallbackHandle, &bFailedCall) ? true : false;
+			if (bIsComplete)
+			{
+				bool bFailedResult;
+				// Retrieve the callback data from the request
+				bool bSuccessCallResult = SteamUtilsPtr->GetAPICallResult(CallbackHandle, &CallbackResults, sizeof(CallbackResults), CallbackResults.k_iCallback, &bFailedResult);
+				bWasSuccessful = (bSuccessCallResult ? true : false) &&
+					(!bFailedCall ? true : false) &&
+					(!bFailedResult ? true : false) &&
+					((CallbackResults.m_bSuccess != 0) ? true : false);
+			}
+		}
+		else if (bInit)
+		{
+			// Invalid API call
+			bIsComplete = true;
+			bWasSuccessful = false;
+		}
+	}
+
+	/**
+	*	Async task is given a chance to trigger it's delegates
+	*/
+	virtual void TriggerDelegates() override
+	{
+		FOnlineAsyncTaskSteam::TriggerDelegates();
+
+		FOnlineLeaderboardsSteamPtr Leaderboards = StaticCastSharedPtr<FOnlineLeaderboardsSteam>(Subsystem->GetLeaderboardsInterface());
+		Leaderboards->TriggerOnLeaderboardWriteCompleteDelegates(bWasSuccessful);
+	}
+};
+
+bool FOnlineLeaderboardsSteam::WriteLeaderboardScore(const FName& LeaderboardName, const int32 InNewScore, const ELeaderboardUpdateMethod::Type InUpdateMethod, const TArray<int32>& ScoreMetadata)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return false;
+	}
+
+	// Will retrieve the leaderboard, making async calls as appropriate
+	FindLeaderboard(LeaderboardName);
+
+	// Retrieve the leaderboard data
+	auto NewLeaderboardTask = new FLOnlineAsyncTaskSteamUpdateLeaderboard(SteamSubsystem, LeaderboardName, InNewScore, InUpdateMethod, ScoreMetadata);
+	SteamSubsystem->QueueAsyncTask(NewLeaderboardTask);
+
+	return true;
+}
+
+FDateTime FOnlineLeaderboardsSteam::GetServerTime()
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return FDateTime::Now();
+	}
+
+	const uint32 serverUnixTime = SteamUtils()->GetServerRealTime();
+	const FTimespan timeZoneDiff = FDateTime::Now() - FDateTime::UtcNow();
+	return serverUnixTime == 0 ? FDateTime::Now() : FDateTime::FromUnixTimestamp(serverUnixTime) + timeZoneDiff;
+}
+
+FString FOnlineLeaderboardsSteam::GetAchievementName(const FName& AchievementAPIName)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return FString();
+	}
+
+	return FString(UTF8_TO_TCHAR(SteamUserStats()->GetAchievementDisplayAttribute(TCHAR_TO_UTF8(*AchievementAPIName.ToString()), TCHAR_TO_UTF8(TEXT("name")))));
+}
+
+FString FOnlineLeaderboardsSteam::GetAchievementDescription(const FName& AchievementAPIName)
+{
+	if (SteamSubsystem == nullptr || !SteamSubsystem->IsSteamClientAvailable())
+	{
+		return FString();
+	}
+
+	return FString(UTF8_TO_TCHAR(SteamUserStats()->GetAchievementDisplayAttribute(TCHAR_TO_UTF8(*AchievementAPIName.ToString()), TCHAR_TO_UTF8(TEXT("desc")))));
 }

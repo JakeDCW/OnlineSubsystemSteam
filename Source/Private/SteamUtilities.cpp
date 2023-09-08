@@ -1,8 +1,6 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "SteamUtilities.h"
-#include "OnlineSubsystemTypes.h"
-#include <steam/steamtypes.h>
 
 /**
  * Takes a Steam EResult value, and converts it into a string (with extra debug info)
@@ -212,9 +210,10 @@ FString SteamP2PConnectError(EP2PSessionError InError)
 
 	switch (InError)
 	{
-		// there are two other constants here but they are both deprecated/slated for removal
 		SteamResultCase(k_EP2PSessionErrorNone,				TEXT("None"));
+		SteamResultCase(k_EP2PSessionErrorNotRunningApp,	TEXT("NotRunningApp"));
 		SteamResultCase(k_EP2PSessionErrorNoRightsToApp,	TEXT("NoRightsToApp"));
+		SteamResultCase(k_EP2PSessionErrorDestinationNotLoggedIn,	TEXT("DestinationNotLoggedIn"));
 		SteamResultCase(k_EP2PSessionErrorTimeout,			TEXT("Timeout"));
 
 	default:

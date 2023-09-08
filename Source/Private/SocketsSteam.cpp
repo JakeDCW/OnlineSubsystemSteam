@@ -1,7 +1,8 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "SocketsSteam.h"
 #include "SocketSubsystemSteam.h"
+#include "IPAddressSteam.h"
 
 bool FSocketSteam::Shutdown(ESocketShutdownMode Mode)
 {
@@ -114,9 +115,9 @@ bool FSocketSteam::SendTo(const uint8* Data, int32 Count, int32& BytesSent, cons
 	if (SteamNetworkingPtr)
 	{
 		const FInternetAddrSteam& SteamDest = (const FInternetAddrSteam&)Destination;
-		if (*SteamDest.SteamId != *LocalSteamId)
+		if (SteamDest.SteamId != LocalSteamId)
 		{
-			if (SteamNetworkingPtr->SendP2PPacket(*SteamDest.SteamId, Data, Count, SteamSendMode, SteamDest.SteamChannel))
+			if (SteamNetworkingPtr->SendP2PPacket(SteamDest.SteamId, Data, Count, SteamSendMode, SteamDest.SteamChannel))
 			{
 				BytesSent = Count;
 				bSuccess = true;
@@ -164,8 +165,7 @@ bool FSocketSteam::RecvFrom(uint8* Data, int32 BufferSize, int32& BytesRead, FIn
 	FInternetAddrSteam& SteamAddr = (FInternetAddrSteam&)Source;
 	
 	uint32 MessageSize = 0;
-	CSteamID SteamId;
-	if (!SteamNetworkingPtr->ReadP2PPacket(Data, BufferSize, &MessageSize, &SteamId, SteamChannel))
+	if (!SteamNetworkingPtr->ReadP2PPacket(Data, BufferSize, &MessageSize, (CSteamID*)SteamAddr.SteamId, SteamChannel))
 	{
 		MessageSize = 0;
         SocketSubsystem->LastSocketError = SE_EWOULDBLOCK;
@@ -173,8 +173,7 @@ bool FSocketSteam::RecvFrom(uint8* Data, int32 BufferSize, int32& BytesRead, FIn
 	}
 	else
 	{
-		SteamAddr.SteamId = FUniqueNetIdSteam::Create(SteamId);
-		if (SocketSubsystem->P2PTouch(SteamNetworkingPtr, *SteamAddr.SteamId, SteamChannel))
+		if (SocketSubsystem->P2PTouch( SteamNetworkingPtr, SteamAddr.SteamId))
 		{
 			SocketSubsystem->LastSocketError = SE_NO_ERROR;
 		}
@@ -189,13 +188,6 @@ bool FSocketSteam::RecvFrom(uint8* Data, int32 BufferSize, int32& BytesRead, FIn
 	// Steam always sends/receives on the same channel both sides
 	SteamAddr.SteamChannel = SteamChannel;
 	BytesRead = (int32)MessageSize;
-
-	if (BytesRead > BufferSize)
-	{
-		UE_LOG(LogSockets, Error, TEXT("FSocketSteam::RecvFrom: Failed to deserialize a packet (length of %d exceeds buffer length of %d), discarding!"), BytesRead, BufferSize);
-		SocketSubsystem->LastSocketError = SE_EMSGSIZE;
-		return false;
-	}
 
 	return bSuccess;
 }
@@ -286,17 +278,6 @@ bool FSocketSteam::LeaveMulticastGroup(const FInternetAddr& GroupAddress)
 }
 
 
-bool FSocketSteam::JoinMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress)
-{
-	return false;
-}
-
-
-bool FSocketSteam::LeaveMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress)
-{
-	return false;
-}
-
 bool FSocketSteam::SetMulticastLoopback(bool bLoopback)
 {
 	return false;
@@ -304,11 +285,6 @@ bool FSocketSteam::SetMulticastLoopback(bool bLoopback)
 
 
 bool FSocketSteam::SetMulticastTtl(uint8 TimeToLive)
-{
-	return false;
-}
-
-bool FSocketSteam::SetMulticastInterface(const FInternetAddr& InterfaceAddress)
 {
 	return false;
 }

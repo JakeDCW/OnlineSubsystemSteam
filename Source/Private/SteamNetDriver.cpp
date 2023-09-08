@@ -1,10 +1,12 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "SteamNetDriver.h"
-#include "EngineLogs.h"
-#include "OnlineSubsystemSteam.h"
+#include "OnlineSubsystemNames.h"
+#include "OnlineSubsystem.h"
+#include "SocketSubsystem.h"
+#include "OnlineSubsystemSteamPrivate.h"
 #include "SocketsSteam.h"
-#include "Misc/CommandLine.h"
+#include "SteamNetConnection.h"
 
 USteamNetDriver::USteamNetDriver(const FObjectInitializer& ObjectInitializer) :
 	Super(ObjectInitializer),
@@ -59,8 +61,9 @@ bool USteamNetDriver::InitBase(bool bInitAsClient, FNetworkNotify* InNotify, con
 		return false;
 	}
 
-	if (GetSocket() == nullptr)
+	if(Socket == NULL)
 	{
+		Socket = 0;
 		Error = FString::Printf( TEXT("SteamSockets: socket failed (%i)"), (int32)SocketSubsystem->GetLastErrorCode() );
 		return false;
 	}
@@ -72,7 +75,7 @@ bool USteamNetDriver::InitBase(bool bInitAsClient, FNetworkNotify* InNotify, con
 	LocalAddr->SetPort(URL.Port);
 
 	int32 AttemptPort = LocalAddr->GetPort();
-	int32 BoundPort = SocketSubsystem->BindNextPort(GetSocket(), *LocalAddr, MaxPortCountToTry + 1, 1);
+	int32 BoundPort = SocketSubsystem->BindNextPort(Socket, *LocalAddr, MaxPortCountToTry + 1, 1);
 	UE_LOG(LogNet, Display, TEXT("%s bound to port %d"), *GetName(), BoundPort);
 	// Success.
 	return true;
@@ -86,12 +89,7 @@ bool USteamNetDriver::InitConnect(FNetworkNotify* InNotify, const FURL& ConnectU
 		// If we are opening a Steam URL, create a Steam client socket
 		if (ConnectURL.Host.StartsWith(STEAM_URL_PREFIX))
 		{
-			FUniqueSocket NewSocket = SteamSockets->CreateUniqueSocket(FName(TEXT("SteamClientSocket")), TEXT("Unreal client (Steam)"),
-																		FNetworkProtocolTypes::Steam);
-
-			TSharedPtr<FSocket> SharedSocket(NewSocket.Release(), FSocketDeleter(NewSocket.GetDeleter()));
-
-			SetSocketAndLocalAddress(SharedSocket);
+			Socket = SteamSockets->CreateSocket(FName(TEXT("SteamClientSocket")), TEXT("Unreal client (Steam)"));
 		}
 		else
 		{
@@ -105,13 +103,10 @@ bool USteamNetDriver::InitConnect(FNetworkNotify* InNotify, const FURL& ConnectU
 bool USteamNetDriver::InitListen(FNetworkNotify* InNotify, FURL& ListenURL, bool bReuseAddressAndPort, FString& Error)
 {
 	ISocketSubsystem* SteamSockets = ISocketSubsystem::Get(STEAM_SUBSYSTEM);
-	if (SteamSockets && !ListenURL.HasOption(TEXT("bIsLanMatch")) && !FParse::Param(FCommandLine::Get(), TEXT("forcepassthrough")))
+	if (SteamSockets && !ListenURL.HasOption(TEXT("bIsLanMatch")))
 	{
 		FName SocketTypeName = IsRunningDedicatedServer() ? FName(TEXT("SteamServerSocket")) : FName(TEXT("SteamClientSocket"));
-		FUniqueSocket NewSocket = SteamSockets->CreateUniqueSocket(SocketTypeName, TEXT("Unreal server (Steam)"), FNetworkProtocolTypes::Steam);
-		TSharedPtr<FSocket> SharedSocket(NewSocket.Release(), FSocketDeleter(NewSocket.GetDeleter()));
-
-		SetSocketAndLocalAddress(SharedSocket);
+		Socket = SteamSockets->CreateSocket(SocketTypeName, TEXT("Unreal server (Steam)"));
 	}
 	else
 	{
@@ -126,7 +121,7 @@ void USteamNetDriver::Shutdown()
 {
 	if (!bIsPassthrough)
 	{
-		FSocketSteam* SteamSocket = (FSocketSteam*)GetSocket();
+		FSocketSteam* SteamSocket = (FSocketSteam*)Socket;
 		if (SteamSocket)
 		{
 			SteamSocket->SetSteamSendMode(k_EP2PSendUnreliableNoDelay);
@@ -138,7 +133,7 @@ void USteamNetDriver::Shutdown()
 
 bool USteamNetDriver::IsNetResourceValid()
 {
-	bool bIsValidSteamSocket = !bIsPassthrough && (GetSocket() != nullptr) && ((FSocketSteam*)GetSocket())->LocalSteamId->IsValid();
+	bool bIsValidSteamSocket = !bIsPassthrough && (Socket != NULL) && ((FSocketSteam*)Socket)->LocalSteamId.IsValid();
 	bool bIsValidPassthroughSocket = bIsPassthrough && UIpNetDriver::IsNetResourceValid();
 	return bIsValidSteamSocket || bIsValidPassthroughSocket;
 }

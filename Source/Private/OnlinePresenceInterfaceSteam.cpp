@@ -1,9 +1,9 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "OnlinePresenceInterfaceSteam.h"
 #include "OnlineSubsystemSteam.h"
 #include "OnlineSessionInterfaceSteam.h"
-#include <steam/isteamutils.h>
+#include "OnlineSubsystemSteamTypes.h"
 
 /** The default key that will contain the launch parameters for joining the game */
 const FString DefaultSteamConnectionKey = TEXT("connect");
@@ -52,7 +52,7 @@ void FOnlineUserPresenceSteam::Update(const FUniqueNetIdSteam& FriendId)
 	if (SteamFriendPtr->GetFriendGamePlayed(FriendId, &FriendInfo))
 	{
 		bIsPlaying = true;
-		SessionId = FUniqueNetIdSteam::Create(FriendInfo.m_steamIDLobby); 
+		SessionId = MakeShared<const FUniqueNetIdSteam>(FUniqueNetIdSteam(FriendInfo.m_steamIDLobby)); 
 		bIsPlayingThisGame = (FriendInfo.m_gameID.AppID() == SteamUtils()->GetAppID());
 	}
 
@@ -183,7 +183,7 @@ void FOnlinePresenceSteam::QueryPresence(const FUniqueNetId& User, const FOnPres
 		return;
 	}
 
-	const FUniqueNetIdSteam& SteamId = FUniqueNetIdSteam::Cast(User);
+	const FUniqueNetIdSteam SteamId(User);
 	if (!SteamId.IsValid())
 	{
 		UE_LOG_ONLINE_PRESENCE(Warning, TEXT("User id %s is not valid, cannot query presence"), *SteamId.ToString());
@@ -191,13 +191,13 @@ void FOnlinePresenceSteam::QueryPresence(const FUniqueNetId& User, const FOnPres
 		return;
 	}
 
-	TSharedRef<FOnlineUserPresenceSteam>* FoundEntry = CachedPresence.Find(SteamId.AsShared());
+	TSharedRef<FOnlineUserPresenceSteam>* FoundEntry = CachedPresence.Find(SteamId);
 	
 	// If we can't find it, create it.
 	if (FoundEntry == nullptr)
 	{
 		TSharedRef<FOnlineUserPresenceSteam> Presence(new FOnlineUserPresenceSteam());
-		FoundEntry = &CachedPresence.Add(SteamId.AsShared(), Presence);
+		FoundEntry = &CachedPresence.Add(SteamId, Presence);
 	}
 
 	// We cannot just grab non-friend information, and have to request Steam to fetch it for us.
@@ -205,7 +205,7 @@ void FOnlinePresenceSteam::QueryPresence(const FUniqueNetId& User, const FOnPres
 	if (SteamFriendsPtr->GetFriendRelationship(SteamId) != k_EFriendRelationshipFriend && !SteamSubsystem->IsLocalPlayer(User))
 	{
 		// Cache out the delegate for now, we'll need it later.
-		DelayedPresenceDelegates.Add(SteamId.AsShared(), MakeShared<const FOnPresenceTaskCompleteDelegate>(Delegate));
+		DelayedPresenceDelegates.Add(SteamId, MakeShared<const FOnPresenceTaskCompleteDelegate>(Delegate));
 		SteamFriendsPtr->RequestFriendRichPresence(SteamId);
 		return;
 	}
@@ -224,8 +224,8 @@ void FOnlinePresenceSteam::UpdatePresenceForUser(const FUniqueNetId& User)
 		return;
 	}
 
-	const FUniqueNetIdSteam& SteamId = FUniqueNetIdSteam::Cast(User);
-	TSharedRef<FOnlineUserPresenceSteam>* FoundEntry = CachedPresence.Find(SteamId.AsShared());
+	const FUniqueNetIdSteam& SteamId = (const FUniqueNetIdSteam&)(User);
+	TSharedRef<FOnlineUserPresenceSteam>* FoundEntry = CachedPresence.Find(SteamId);
 
 	// Create entries if we don't have them. 
 	// Normally we would assume you have this information, however we get update callbacks on application start
@@ -233,18 +233,18 @@ void FOnlinePresenceSteam::UpdatePresenceForUser(const FUniqueNetId& User)
 	if (FoundEntry == nullptr)
 	{
 		TSharedRef<FOnlineUserPresenceSteam> Presence(new FOnlineUserPresenceSteam());
-		FoundEntry = &CachedPresence.Add(SteamId.AsShared(), Presence);
+		FoundEntry = &CachedPresence.Add(SteamId, Presence);
 	}
 
 	FoundEntry->Get().Update(SteamId);
 
 	// If this user was not a friend at the time of the QueryPresence call, they likely have a delegate registered
 	// Find it, and then call it, removing the old entry.
-	TSharedRef<const FOnPresenceTaskCompleteDelegate>* DelayedDelegate = DelayedPresenceDelegates.Find(SteamId.AsShared());
+	TSharedRef<const FOnPresenceTaskCompleteDelegate>* DelayedDelegate = DelayedPresenceDelegates.Find(SteamId);
 	if (DelayedDelegate != nullptr)
 	{
 		DelayedDelegate->Get().ExecuteIfBound(User, true);
-		DelayedPresenceDelegates.Remove(SteamId.AsShared());
+		DelayedPresenceDelegates.Remove(SteamId);
 	}
 	else
 	{
@@ -260,7 +260,7 @@ void FOnlinePresenceSteam::UpdatePresenceForUser(const FUniqueNetId& User)
 
 EOnlineCachedResult::Type FOnlinePresenceSteam::GetCachedPresence(const FUniqueNetId& User, TSharedPtr<FOnlineUserPresence>& OutPresence)
 {
-	TSharedRef<FOnlineUserPresenceSteam>* Found = CachedPresence.Find(User.AsShared());
+	TSharedRef<FOnlineUserPresenceSteam>* Found = CachedPresence.Find(FUniqueNetIdSteam(User));
 	if (Found == nullptr)
 	{
 		return EOnlineCachedResult::NotFound;

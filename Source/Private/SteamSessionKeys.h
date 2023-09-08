@@ -1,9 +1,9 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
-#include "Interfaces/OnlineSessionInterface.h"
-#include "OnlineSubsystemSteamPrivate.h" // IWYU pragma: keep
+#include "CoreMinimal.h"
+#include "OnlineSubsystemSteamPrivate.h"
 #include "OnlineSessionSettings.h"
 
 /** Internal Steam session keys for advertising */
@@ -19,16 +19,14 @@
 #define STEAMKEY_BUILDUNIQUEID "BUILDID"
 
 /** Number of keys above required for valid lobby session */
-#define STEAMKEY_NUMREQUIREDLOBBYKEYS 9
-#define STEAMKEY_NUMREQUIREDSERVERKEYS 4
+#define STEAMKEY_NUMREQUIREDLOBBYKEYS 8
+#define STEAMKEY_NUMREQUIREDSERVERKEYS 3
 
 /** Optional keys (depends on lobby/advertised server session) */
 #define STEAMKEY_HOSTIP "HOSTIP"
 #define STEAMKEY_HOSTPORT "HOSTPORT"
 #define STEAMKEY_P2PADDR "P2PADDR"
 #define STEAMKEY_P2PPORT "P2PPORT"
-#define STEAMKEY_P2PPING "P2PPING"
-#define STEAMKEY_CONNECTIONMETHOD "CONMETHOD"
 
 /**
  * Converts an engine key and its data type to an appropriate Steam key for use with lobbies/gameservers
@@ -88,7 +86,7 @@ inline bool SteamKeyToSessionSetting(const TCHAR* SteamKey, const ANSICHAR* Stea
 
 	TCHAR SteamKeyCopy[1024];
 
-	FCString::Strncpy(SteamKeyCopy, SteamKey, UE_ARRAY_COUNT(SteamKeyCopy));
+	FCString::Strncpy(SteamKeyCopy, SteamKey, ARRAY_COUNT(SteamKeyCopy));
 
 	TCHAR* DataType = FCString::Strrchr(SteamKeyCopy, '_');
 	if (DataType)

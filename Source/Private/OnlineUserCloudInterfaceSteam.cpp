@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "OnlineUserCloudInterfaceSteam.h"
 #include "Misc/ScopeLock.h"
@@ -7,7 +7,7 @@
 FString FOnlineAsyncTaskSteamEnumerateUserFiles::ToString() const
 {
 	return FString::Printf(TEXT("FOnlineAsyncTaskSteamEnumerateUserFiles bWasSuccessful:%d UserId:%s"),
-									WasSuccessful(), *UserId->ToDebugString());
+									WasSuccessful(), *UserId.ToDebugString());
 }
 
 void FOnlineAsyncTaskSteamEnumerateUserFiles::Tick()
@@ -17,14 +17,15 @@ void FOnlineAsyncTaskSteamEnumerateUserFiles::Tick()
 
 	if (SteamRemoteStorage())
 	{
-		if (SteamUser()->BLoggedOn() && SteamUser()->GetSteamID() == *UserId)
+		CSteamID SteamId(*(uint64*)UserId.GetBytes());
+		if (SteamUser()->BLoggedOn() && SteamUser()->GetSteamID() == SteamId)
 		{
 			//SteamSubsystem->GetUserCloudInterface()->DumpCloudState(UserId);
 
 			FScopeLock ScopeLock(&Subsystem->UserCloudDataLock);
 
 			// Get or create the user metadata entry and empty it
-			FSteamUserCloudData* UserMetadata = Subsystem->GetUserCloudEntry(*UserId);
+			FSteamUserCloudData* UserMetadata = Subsystem->GetUserCloudEntry(UserId);
 
 			UserMetadata->CloudMetadata.Empty();
 
@@ -57,13 +58,13 @@ void FOnlineAsyncTaskSteamEnumerateUserFiles::TriggerDelegates()
 	FOnlineAsyncTaskSteam::TriggerDelegates();
 
 	IOnlineUserCloudPtr UserCloudInterface = Subsystem->GetUserCloudInterface();
-	UserCloudInterface->TriggerOnEnumerateUserFilesCompleteDelegates(bWasSuccessful, *UserId);
+	UserCloudInterface->TriggerOnEnumerateUserFilesCompleteDelegates(bWasSuccessful, UserId);
 }
 
 FString FOnlineAsyncTaskSteamReadUserFile::ToString() const
 {
 	return FString::Printf(TEXT("FOnlineAsyncTaskSteamReadUserFile bWasSuccessful:%d UserId:%s FileName:%s"),
-									WasSuccessful(), *UserId->ToDebugString(), *FileName);
+									WasSuccessful(), *UserId.ToDebugString(), *FileName);
 }
 
 void FOnlineAsyncTaskSteamReadUserFile::Tick()
@@ -73,7 +74,8 @@ void FOnlineAsyncTaskSteamReadUserFile::Tick()
 
 	if (SteamRemoteStorage() && FileName.Len() > 0)
 	{
-		if (SteamUser()->BLoggedOn() && SteamUser()->GetSteamID() == *UserId)
+		CSteamID SteamId(*(uint64*)UserId.GetBytes());
+		if (SteamUser()->BLoggedOn() && SteamUser()->GetSteamID() == SteamId)
 		{
 			// Currently don't support greater than 1 chunk
 			const int32 FileSize = SteamRemoteStorage()->GetFileSize(TCHAR_TO_UTF8(*FileName));
@@ -81,7 +83,7 @@ void FOnlineAsyncTaskSteamReadUserFile::Tick()
 			{
 				FScopeLock ScopeLock(&Subsystem->UserCloudDataLock);
 				// Create or get the current entry for this file
-				FSteamUserCloudData* UserCloud = Subsystem->GetUserCloudEntry(*UserId);
+				FSteamUserCloudData* UserCloud = Subsystem->GetUserCloudEntry(UserId);
 				if (UserCloud)
 				{
 					FCloudFile* UserCloudFile = UserCloud->GetFileData(FileName, true);
@@ -117,7 +119,7 @@ void FOnlineAsyncTaskSteamReadUserFile::Tick()
 
 	{
 		FScopeLock ScopeLock(&Subsystem->UserCloudDataLock);
-		FSteamUserCloudData* UserCloud = Subsystem->GetUserCloudEntry(*UserId);
+		FSteamUserCloudData* UserCloud = Subsystem->GetUserCloudEntry(UserId);
 		if (UserCloud)
 		{
 			FCloudFile* UserCloudFileData = UserCloud->GetFileData(FileName);
@@ -134,7 +136,7 @@ void FOnlineAsyncTaskSteamReadUserFile::TriggerDelegates()
 	FOnlineAsyncTaskSteam::TriggerDelegates();
 
 	IOnlineUserCloudPtr UserCloudInterface = Subsystem->GetUserCloudInterface();
-	UserCloudInterface->TriggerOnReadUserFileCompleteDelegates(bWasSuccessful, *UserId, FileName);
+	UserCloudInterface->TriggerOnReadUserFileCompleteDelegates(bWasSuccessful, UserId, FileName);
 }
 
 bool FOnlineAsyncTaskSteamWriteUserFile::WriteUserFile(const FUniqueNetId& InUserId, const FString& InFileToWrite, const TArray<uint8>& InContents)
@@ -210,14 +212,14 @@ bool FOnlineAsyncTaskSteamWriteUserFile::WriteUserFile(const FUniqueNetId& InUse
 FString FOnlineAsyncTaskSteamWriteUserFile::ToString() const
 {
 	return FString::Printf(TEXT("FOnlineAsyncTaskSteamWriteUserFile bWasSuccessful:%d UserId:%s FileName:%s"),
-									WasSuccessful(), *UserId->ToDebugString(), *FileName);
+									WasSuccessful(), *UserId.ToDebugString(), *FileName);
 }
 
 void FOnlineAsyncTaskSteamWriteUserFile::Tick()
 {	
 	// Going to be complete no matter what
 	bIsComplete = true;
-	if (WriteUserFile(*UserId, FileName, Contents))
+	if (WriteUserFile(UserId, FileName, Contents))
 	{
 		bWasSuccessful = true;
 	}
@@ -231,7 +233,7 @@ void FOnlineAsyncTaskSteamWriteUserFile::TriggerDelegates()
 	FOnlineAsyncTaskSteam::TriggerDelegates();
 
 	IOnlineUserCloudPtr UserCloudInterface = Subsystem->GetUserCloudInterface();
-	UserCloudInterface->TriggerOnWriteUserFileCompleteDelegates(bWasSuccessful, *UserId, FileName);
+	UserCloudInterface->TriggerOnWriteUserFileCompleteDelegates(bWasSuccessful, UserId, FileName);
 }
 
 FOnlineUserCloudSteam::~FOnlineUserCloudSteam()
@@ -288,7 +290,7 @@ bool FOnlineUserCloudSteam::ClearFile(const FUniqueNetId& UserId, const FString&
 
 void FOnlineUserCloudSteam::EnumerateUserFiles(const FUniqueNetId& UserId)
 {
-	SteamSubsystem->QueueAsyncTask(new FOnlineAsyncTaskSteamEnumerateUserFiles(SteamSubsystem, FUniqueNetIdSteam::Cast(UserId)));
+	SteamSubsystem->QueueAsyncTask(new FOnlineAsyncTaskSteamEnumerateUserFiles(SteamSubsystem, FUniqueNetIdSteam(*(uint64*)UserId.GetBytes())));
 }
 
 void FOnlineUserCloudSteam::GetUserFileList(const FUniqueNetId& UserId, TArray<FCloudFileHeader>& UserFiles)
@@ -307,14 +309,14 @@ bool FOnlineUserCloudSteam::ReadUserFile(const FUniqueNetId& UserId, const FStri
 	{
 		FCloudFile* UserCloudFile = UserCloud->GetFileData(FileName, true);
 		UserCloudFile->AsyncState = EOnlineAsyncTaskState::InProgress;
-		SteamSubsystem->QueueAsyncTask(new FOnlineAsyncTaskSteamReadUserFile(SteamSubsystem, FUniqueNetIdSteam::Cast(UserId), FileName));
+		SteamSubsystem->QueueAsyncTask(new FOnlineAsyncTaskSteamReadUserFile(SteamSubsystem, FUniqueNetIdSteam(*(uint64*)UserId.GetBytes()), FileName));
 		return true;
 	}
 	
 	return false;
 }
 
-bool FOnlineUserCloudSteam::WriteUserFile(const FUniqueNetId& UserId, const FString& FileName, TArray<uint8>& FileContents, bool bCompressBeforeUpload)
+bool FOnlineUserCloudSteam::WriteUserFile(const FUniqueNetId& UserId, const FString& FileName, TArray<uint8>& FileContents)
 {
 	FScopeLock ScopeLock(&SteamSubsystem->UserCloudDataLock);
 	// Create or get the current entry for this file
@@ -323,7 +325,7 @@ bool FOnlineUserCloudSteam::WriteUserFile(const FUniqueNetId& UserId, const FStr
 	{
 		FCloudFile* UserCloudFile = UserCloud->GetFileData(FileName, true);
 		UserCloudFile->AsyncState = EOnlineAsyncTaskState::InProgress;
-		SteamSubsystem->QueueAsyncTask(new FOnlineAsyncTaskSteamWriteUserFile(SteamSubsystem, FUniqueNetIdSteam::Cast(UserId), FileName, FileContents));
+		SteamSubsystem->QueueAsyncTask(new FOnlineAsyncTaskSteamWriteUserFile(SteamSubsystem, FUniqueNetIdSteam(*(uint64*)UserId.GetBytes()), FileName, FileContents));
 		return true;
 	}
 
@@ -338,7 +340,7 @@ void FOnlineUserCloudSteam::CancelWriteUserFile(const FUniqueNetId& UserId, cons
 
 bool FOnlineUserCloudSteam::DeleteUserFile(const FUniqueNetId& UserId, const FString& FileName, bool bShouldCloudDelete, bool bShouldLocallyDelete)
 {
-	SteamSubsystem->QueueAsyncTask(new FOnlineAsyncTaskSteamDeleteUserFile(SteamSubsystem, FUniqueNetIdSteam::Cast(UserId), FileName, bShouldCloudDelete, bShouldLocallyDelete));
+	SteamSubsystem->QueueAsyncTask(new FOnlineAsyncTaskSteamDeleteUserFile(SteamSubsystem, FUniqueNetIdSteam(*(uint64*)UserId.GetBytes()), FileName, bShouldCloudDelete, bShouldLocallyDelete));
 	return true;
 }
 
@@ -402,7 +404,7 @@ void FOnlineUserCloudSteam::DumpCloudFileState(const FUniqueNetId& UserId, const
 FString FOnlineAsyncTaskSteamDeleteUserFile::ToString() const
 {
 	return FString::Printf(TEXT("FOnlineAsyncTaskSteamDeleteUserFile bWasSuccessful:%d UserId:%s FileName:%s"),
-								WasSuccessful(), *UserId->ToDebugString(), *FileName);
+								WasSuccessful(), *UserId.ToDebugString(), *FileName);
 }
 
 void FOnlineAsyncTaskSteamDeleteUserFile::Tick()
@@ -411,7 +413,8 @@ void FOnlineAsyncTaskSteamDeleteUserFile::Tick()
 
 	if (SteamRemoteStorage() && FileName.Len() > 0)
 	{
-		if (SteamUser()->BLoggedOn() && SteamUser()->GetSteamID() == *UserId)
+		CSteamID SteamId(*(uint64*)UserId.GetBytes());
+		if (SteamUser()->BLoggedOn() && SteamUser()->GetSteamID() == SteamId)
 		{
 			bool bCloudDeleteSuccess = true;
 			if (bShouldCloudDelete)
@@ -427,11 +430,11 @@ void FOnlineAsyncTaskSteamDeleteUserFile::Tick()
 				// Only clear the tables if we're permanently deleting the file
 				// Need to make sure nothing async is happening	first (this is a formality as nothing in Steam actually is)
 				IOnlineUserCloudPtr UserCloud = Subsystem->GetUserCloudInterface();
-				if (UserCloud->ClearFile(*UserId, FileName))
+				if (UserCloud->ClearFile(UserId, FileName))
 				{
 					// Permanent delete
 					bLocalDeleteSuccess = SteamRemoteStorage()->FileDelete(TCHAR_TO_UTF8(*FileName));
-					Subsystem->ClearUserCloudMetadata(*UserId, FileName);
+					Subsystem->ClearUserCloudMetadata(UserId, FileName);
 				}
 			}
 
@@ -455,5 +458,5 @@ void FOnlineAsyncTaskSteamDeleteUserFile::TriggerDelegates()
 	FOnlineAsyncTaskSteam::TriggerDelegates();
 
 	IOnlineUserCloudPtr UserCloudInterface = Subsystem->GetUserCloudInterface();
-	UserCloudInterface->TriggerOnDeleteUserFileCompleteDelegates(bWasSuccessful, *UserId, FileName);
+	UserCloudInterface->TriggerOnDeleteUserFileCompleteDelegates(bWasSuccessful, UserId, FileName);
 }

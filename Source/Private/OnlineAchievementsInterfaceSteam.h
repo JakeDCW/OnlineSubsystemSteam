@@ -1,12 +1,11 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
+#include "CoreMinimal.h"
+#include "OnlineSubsystemSteamTypes.h"
 #include "Interfaces/OnlineAchievementsInterface.h"
 #include "Misc/ConfigCacheIni.h"
-#include "OnlineSubsystemPackage.h"
-
-class FUniqueNetIdSteam;
 
 /**
  *	IOnlineAchievements - Interface class for acheivements
@@ -99,7 +98,7 @@ private:
 	FOnlineAchievementsSteam() {};
 
 	/** Mapping of players to their achievements */
-	TUniqueNetIdMap<TArray<FOnlineAchievement>> PlayerAchievements;
+	TMap<FUniqueNetIdSteam, TArray<FOnlineAchievement>> PlayerAchievements;
 
 	/** Cached achievement descriptions for an Id */
 	TMap<FString, FOnlineAchievementDesc> AchievementDescriptions;

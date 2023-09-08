@@ -1,9 +1,8 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "OnlineAuthHandlerSteam.h"
 #include "OnlineAuthInterfaceSteam.h"
-#include "OnlineAuthInterfaceUtilsSteam.h"
-#include <steam/isteamuser.h>
+#include "OnlineSubsystemUtils.h"
 
 enum class ESteamAuthMsgType : uint8
 {
@@ -56,24 +55,15 @@ struct FSteamAuthResult : public FSteamAuthInfoData
 
 struct FSteamAuthUserData : public FSteamAuthInfoData
 {
-	FSteamAuthUserData()
-		: FSteamAuthInfoData(ESteamAuthMsgType::Auth)
-		, SteamId(FUniqueNetIdSteam::EmptyId())
-	{}
-
+	FSteamAuthUserData() : FSteamAuthInfoData(ESteamAuthMsgType::Auth) {}
 	virtual ~FSteamAuthUserData() {}
 	FString AuthKey;
-	FUniqueNetIdSteamRef SteamId;
+	FUniqueNetIdSteam SteamId;
 
 	virtual void SerializeData(FArchive& Ar) override
 	{
 		FSteamAuthInfoData::SerializeData(Ar);
-		if (Ar.IsLoading())
-		{
-			// Create a new one to avoid changing the hash of a pre-existing NetId, which would break any FUniqueNetIdSet/TUniqueNetIdMap containing the pre-existing NetId.
-			SteamId = FUniqueNetIdSteam::Create();
-		}
-		Ar << AuthKey << ConstCastSharedRef<FUniqueNetIdSteam>(SteamId)->UniqueNetId;
+		Ar << AuthKey << SteamId;
 	}
 
 	friend FArchive& operator<<(FArchive& Ar, FSteamAuthUserData& AuthData)
@@ -93,11 +83,10 @@ FString ReusableKey;
 FSteamAuthHandlerComponent::FSteamAuthHandlerComponent() :
 	AuthInterface(nullptr),
 	SteamUserPtr(SteamUser()),
-	State(ESteamAuthHandlerState::Uninitialized),
 	bIsEnabled(true),
 	LastTimestamp(0.0f),
 	TicketHandle(k_HAuthTicketInvalid),
-	SteamId(SteamUserPtr ? FUniqueNetIdSteam::Create(SteamUserPtr->GetSteamID()) : FUniqueNetIdSteam::EmptyId())
+	SteamId((SteamUserPtr != nullptr) ? SteamUserPtr->GetSteamID() : k_steamIDNil)
 {
 	SetActive(true);
 	bRequiresHandshake = true;
@@ -130,18 +119,8 @@ FSteamAuthHandlerComponent::~FSteamAuthHandlerComponent()
 	}
 	else
 	{
-		AuthInterface->RemoveUser(*SteamId);
+		AuthInterface->RemoveUser(SteamId);
 	}
-}
-
-void FSteamAuthHandlerComponent::CountBytes(FArchive& Ar) const
-{
-	HandlerComponent::CountBytes(Ar);
-
-	const SIZE_T SizeOfThis = sizeof(*this) - sizeof(HandlerComponent);
-	Ar.CountBytes(SizeOfThis, SizeOfThis);
-
-	UserTicket.CountBytes(Ar);
 }
 
 void FSteamAuthHandlerComponent::Initialize()
@@ -183,7 +162,7 @@ void FSteamAuthHandlerComponent::SendAuthKey(bool bGenerateNewKey)
 {
 	FBitWriter AuthDataPacket((sizeof(FSteamAuthUserData) + FOnlineAuthSteam::GetMaxTicketSizeInBytes()) * 8 + 1);
 	FSteamAuthUserData UserData;
-	UserData.SteamId = SteamId;
+	UserData.SteamId.UniqueNetId = SteamId.UniqueNetId;
 
 	if (bGenerateNewKey || TicketHandle == k_HAuthTicketInvalid)
 	{
@@ -213,7 +192,7 @@ void FSteamAuthHandlerComponent::SendAuthKey(bool bGenerateNewKey)
 
 	if (AuthInterface->bSendBadId)
 	{
-		UserData.SteamId = FUniqueNetIdSteam::EmptyId();
+		UserData.SteamId = FUniqueNetIdSteam(k_steamIDNil);
 	}
 #endif
 
@@ -230,7 +209,7 @@ void FSteamAuthHandlerComponent::SendAuthKey(bool bGenerateNewKey)
 bool FSteamAuthHandlerComponent::SendAuthResult()
 {
 	// This function is safe to call multiple times. If we're already in progress, we let the user go through.
-	bool AuthStatusResult = AuthInterface->AuthenticateUser(*SteamId);
+	bool AuthStatusResult = AuthInterface->AuthenticateUser(SteamId);
 
 	FSteamAuthResult AllowedPacket;
 	FBitWriter ResultPacketWriter(sizeof(FSteamAuthResult) * 8 + 1, true);
@@ -241,7 +220,7 @@ bool FSteamAuthHandlerComponent::SendAuthResult()
 
 	SendPacket(ResultPacketWriter);
 	
-	UE_LOG_ONLINE(Log, TEXT("AUTH HANDLER: Sending auth result to user %s with flag success? %d"), *SteamId->ToString(), AuthStatusResult);
+	UE_LOG_ONLINE(Log, TEXT("AUTH HANDLER: Sending auth result to user %s with flag success? %d"), *SteamId.ToString(), AuthStatusResult);
 
 	return AuthStatusResult;
 }
@@ -337,19 +316,19 @@ void FSteamAuthHandlerComponent::Incoming(FBitReader& Packet)
 		}
 
 		SteamId = AuthData.SteamId;
-		if (!SteamId->IsValid())
+		if (!SteamId.IsValid())
 		{
 			UE_LOG_ONLINE(Error, TEXT("AUTH HANDLER: Got an invalid steamid"));
-			AuthInterface->ExecuteResultDelegate(*SteamId, false, ESteamAuthResponseCode::NotConnectedToSteam);
+			AuthInterface->ExecuteResultDelegate(SteamId, false);
 			Packet.SetError();
 			return;
 		}
 
-		FOnlineAuthSteam::SharedAuthUserSteamPtr TargetUser = AuthInterface->GetOrCreateUser(*SteamId);
+		FOnlineAuthSteam::SharedAuthUserSteamPtr TargetUser = AuthInterface->GetOrCreateUser(SteamId);
 		if (!TargetUser.IsValid())
 		{
-			UE_LOG_ONLINE(Error, TEXT("AUTH HANDLER: Could not create user listing for %s"), *SteamId->ToString());
-			AuthInterface->ExecuteResultDelegate(*SteamId, false, ESteamAuthResponseCode::FailedToCreateUser);
+			UE_LOG_ONLINE(Error, TEXT("AUTH HANDLER: Could not create user listing for %s"), *SteamId.ToString());
+			AuthInterface->ExecuteResultDelegate(SteamId, false);
 			Packet.SetError();
 			return;
 		}
@@ -358,7 +337,7 @@ void FSteamAuthHandlerComponent::Incoming(FBitReader& Packet)
 
 		if (!SendAuthResult())
 		{
-			AuthInterface->MarkPlayerForKick(*SteamId);
+			AuthInterface->MarkPlayerForKick(SteamId);
 		}
 
 		SetComponentReady();
@@ -384,7 +363,7 @@ void FSteamAuthHandlerComponent::Incoming(FBitReader& Packet)
 	{
 		if (State == ESteamAuthHandlerState::Initialized)
 		{
-			UE_LOG_ONLINE(Log, TEXT("AUTH HANDLER: Got request from %s to resend result"), *SteamId->ToString());
+			UE_LOG_ONLINE(Log, TEXT("AUTH HANDLER: Got request from %s to resend result"), *SteamId.ToString());
 			SendAuthResult();
 		}
 		else

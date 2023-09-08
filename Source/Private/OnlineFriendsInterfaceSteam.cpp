@@ -1,18 +1,20 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "OnlineFriendsInterfaceSteam.h"
 #include "OnlineSubsystemSteam.h"
-#include "OnlineError.h"
 #include "OnlineSubsystemSteamTypes.h"
-#include <steam/isteamuser.h>
+#include "Engine/Texture2D.h"
+#include "Misc/ScopeLock.h"
+
+#define MAX_CACHED_AVATARS (64)
 
 // FOnlineFriendSteam
 FOnlineFriendSteam::FOnlineFriendSteam(const CSteamID& InUserId)
-	: UserId(FUniqueNetIdSteam::Create(InUserId))
+	: UserId(new FUniqueNetIdSteam(InUserId))
 {
 }
 
-FUniqueNetIdRef FOnlineFriendSteam::GetUserId() const
+TSharedRef<const FUniqueNetId> FOnlineFriendSteam::GetUserId() const
 {
 	return UserId;
 }
@@ -102,26 +104,6 @@ bool FOnlineFriendsSteam::RejectInvite(int32 LocalUserNum, const FUniqueNetId& F
 {
 	TriggerOnRejectInviteCompleteDelegates(LocalUserNum, false, FriendId, ListName, FString(TEXT("RejectInvite() is not supported")));
 	return false;
-}
-
-void FOnlineFriendsSteam::SetFriendAlias(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName, const FString& Alias, const FOnSetFriendAliasComplete& Delegate /*= FOnSetFriendAliasComplete()*/)
-{
-	FUniqueNetIdRef FriendIdRef = FriendId.AsShared();
-	SteamSubsystem->ExecuteNextTick([LocalUserNum, FriendIdRef, ListName, Delegate]()
-	{
-		UE_LOG_ONLINE_FRIEND(Warning, TEXT("FOnlineFriendsSteam::SetFriendAlias is not supported"));
-		Delegate.ExecuteIfBound(LocalUserNum, *FriendIdRef, ListName, FOnlineError(EOnlineErrorResult::NotImplemented));
-	});
-}
-
-void FOnlineFriendsSteam::DeleteFriendAlias(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName, const FOnDeleteFriendAliasComplete& Delegate)
-{
-	FUniqueNetIdRef FriendIdRef = FriendId.AsShared();
-	SteamSubsystem->ExecuteNextTick([LocalUserNum, FriendIdRef, ListName, Delegate]()
-	{
-		UE_LOG_ONLINE_FRIEND(Warning, TEXT("FOnlineFriendsSteam::DeleteFriendAlias is not supported"));
-		Delegate.ExecuteIfBound(LocalUserNum, *FriendIdRef, ListName, FOnlineError(EOnlineErrorResult::NotImplemented));
-	});
 }
 
 bool FOnlineFriendsSteam::DeleteFriend(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName)
@@ -331,4 +313,157 @@ void FOnlineAsyncTaskSteamReadFriendsList::TriggerDelegates(void)
 	FOnlineAsyncTask::TriggerDelegates();
 
 	Delegate.ExecuteIfBound(LocalUserNum, true, EFriendsLists::ToString(FriendsListFilter), FString());
+}
+
+void FOnlineFriendsSteam::ShowInviteFriendsDialog(const FUniqueNetId& LobbyId)
+{
+	if (SteamSubsystem != nullptr && SteamSubsystem->IsEnabled())
+	{
+		SteamFriendsPtr->ActivateGameOverlayInviteDialog(*(uint64*)LobbyId.GetBytes());
+	}
+}
+
+void FOnlineFriendsSteam::CachePlayerAvatar(const FUniqueNetId& UserId)
+{
+	FScopeLock lock(&CachedAvatarsLock);
+
+	const FUniqueNetIdSteam player(UserId);
+	EFriendsLists::PlayerAvatarSize Size(EFriendsLists::PlayerAvatarSize::Avatar_Medium);
+
+	if (player.IsValid() && CachedAvatarsInFlight.RemoveAndCopyValue(player, Size))
+	{
+		int avatarId;
+
+		switch (Size)
+		{
+		case EFriendsLists::PlayerAvatarSize::Avatar_Small: avatarId = SteamFriends()->GetSmallFriendAvatar(player); break;
+		case EFriendsLists::PlayerAvatarSize::Avatar_Medium: avatarId = SteamFriends()->GetMediumFriendAvatar(player); break;
+		case EFriendsLists::PlayerAvatarSize::Avatar_Large: default: avatarId = SteamFriends()->GetLargeFriendAvatar(player); break;
+		}
+
+		if (avatarId == 0)
+		{
+			UE_LOG_ONLINE(Warning, TEXT("FOnlineFriendsSteam::CachePlayerAvatar: Avatar for player %llu not cached!"), player.UniqueNetId);
+			return;
+		}
+
+		if (avatarId == -1)
+		{
+			UE_LOG_ONLINE(Display, TEXT("FOnlineFriendsSteam::CachePlayerAvatar: Avatar for player %llu still loading, postponing cache..."), player.UniqueNetId);
+			CachedAvatarsInFlight.Add(player, EFriendsLists::PlayerAvatarSize::Avatar_Large);
+			return;
+		}
+
+		uint32 width = 0, height = 0;
+		if (!SteamUtils()->GetImageSize(avatarId, &width, &height))
+		{
+			UE_LOG_ONLINE(Warning, TEXT("FOnlineFriendsSteam::CachePlayerAvatar: GetImageSize for player %%llu failed!"), player.UniqueNetId);
+			return;
+		}
+
+		const uint32 size = width * height * 4;
+		auto data = new uint8[size];
+
+		if (!SteamUtils()->GetImageRGBA(avatarId, data, size))
+		{
+			UE_LOG_ONLINE(Warning, TEXT("FOnlineFriendsSteam::CachePlayerAvatar: GetImageRGBA for player %%llu failed!"), player.UniqueNetId);
+			delete[] data;
+			return;
+		}
+
+		const TStrongObjectPtr<UTexture2D> avatar(UTexture2D::CreateTransient(width, height, PF_R8G8B8A8));
+
+		auto mipData = (uint8*)avatar->PlatformData->Mips[0].BulkData.Lock(LOCK_READ_WRITE);
+		FMemory::Memcpy(mipData, data, size);
+		avatar->PlatformData->Mips[0].BulkData.Unlock();
+
+		delete[] data;
+
+		avatar->PlatformData->NumSlices = 1;
+		avatar->NeverStream = true;
+		avatar->AddressX = TA_Clamp;
+		avatar->AddressY = TA_Clamp;
+		avatar->Filter = TF_Bilinear;
+
+		avatar->UpdateResource();
+
+		CachedAvatars.Add(player, TPair<const TStrongObjectPtr<UTexture2D>, double>(avatar, FPlatformTime::Seconds()));
+
+		UE_LOG_ONLINE(Verbose, TEXT("FOnlineFriendsSteam::CachePlayerAvatar: Cached avatar for player %llu."), player.UniqueNetId);
+
+		if (CachedAvatars.Num() > MAX_CACHED_AVATARS)
+		{
+			double oldestTime = MAX_dbl;
+			FUniqueNetIdSteam oldestKey;
+			for (TMap<const FUniqueNetIdSteam, TPair<const TStrongObjectPtr<UTexture2D>, double>>::TConstIterator i
+				= CachedAvatars.CreateConstIterator(); i; ++i)
+			{
+				if (i.Value().Value < oldestTime && i.Key() != FUniqueNetIdSteam(SteamUser()->GetSteamID()))
+				{
+					oldestTime = i.Value().Value;
+					oldestKey = i.Key();
+				}
+			}
+			CachedAvatars.Remove(oldestKey);
+			UE_LOG_ONLINE(Verbose, TEXT("FOnlineFriendsSteam::CachePlayerAvatar: Removed cached avatar for player %llu."), oldestKey.UniqueNetId);
+		}
+	}
+	else
+	{
+		UE_LOG_ONLINE(Warning, TEXT("FOnlineFriendsSteam::CachePlayerAvatar: Invalid Player Id %llu"), player.UniqueNetId);
+	}
+}
+
+UTexture2D* FOnlineFriendsSteam::GetFriendAvatar(const FUniqueNetId& UserId, EFriendsLists::PlayerAvatarSize AvatarSize)
+{
+	FScopeLock lock(&CachedAvatarsLock);
+
+	const FUniqueNetIdSteam userId(UserId);
+
+	if (userId.IsValid())
+	{
+		TPair<const TStrongObjectPtr<UTexture2D>, double>* const currentAvatar = CachedAvatars.Find(userId);
+		if (currentAvatar != nullptr)
+		{
+			currentAvatar->Value = FPlatformTime::Seconds();
+
+			UE_LOG_ONLINE(Verbose, TEXT("FOnlineFriendsSteam::GetFriendAvatar: Retrieved cached avatar for user %llu."), userId.UniqueNetId);
+
+			return currentAvatar->Key.Get();
+		}
+		else if (!CachedAvatarsInFlight.Contains(userId))
+		{
+			if (!SteamFriends()->RequestUserInformation(userId, false))
+			{
+				CachedAvatarsInFlight.Add(userId, AvatarSize);
+
+				CachePlayerAvatar(userId);
+
+				TPair<const TStrongObjectPtr<UTexture2D>, double>* const currentAvatarRetry = CachedAvatars.Find(userId);
+				if (currentAvatarRetry != nullptr)
+				{
+					currentAvatarRetry->Value = FPlatformTime::Seconds();
+
+					UE_LOG_ONLINE(Verbose, TEXT("FOnlineFriendsSteam::GetFriendAvatar: Retrieved cached avatar for user %llu."), userId.UniqueNetId);
+
+					return currentAvatarRetry->Key.Get();
+				}
+
+				CachedAvatarsInFlight.Remove(userId);
+
+				UE_LOG_ONLINE(Verbose, TEXT("FOnlineFriendsSteam::GetFriendAvatar: RequestUserInformation for user %llu failed!"), userId.UniqueNetId);
+				return nullptr;
+			}
+
+			CachedAvatarsInFlight.Add(userId, AvatarSize);
+
+			UE_LOG_ONLINE(Verbose, TEXT("FOnlineFriendsSteam::GetFriendAvatar: Avatar for user %llu is not cached. Fetching..."), userId.UniqueNetId);
+		}
+		else
+		{
+			UE_LOG_ONLINE(Verbose, TEXT("FOnlineFriendsSteam::GetFriendAvatar: Trying to get avatar for user %llu that is still fetching..."), userId.UniqueNetId);
+		}
+	}
+
+	return nullptr;
 }

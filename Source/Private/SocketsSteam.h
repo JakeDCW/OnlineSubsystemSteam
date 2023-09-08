@@ -1,10 +1,13 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
+#include "CoreMinimal.h"
+#include "OnlineSubsystemNames.h"
 #include "SocketSubsystem.h"
 #include "OnlineSubsystemSteamTypes.h"
 #include "Sockets.h"
+#include "OnlineSubsystemSteamPackage.h"
 
 class FSocketSubsystemSteam;
 
@@ -22,7 +25,7 @@ private:
 PACKAGE_SCOPE:
 
 	/** Local Steam Id (local network address) */
-	FUniqueNetIdSteamRef LocalSteamId;
+	FUniqueNetIdSteam LocalSteamId;
 
 	/** Channel this socket receives data on (similar to port number) */
 	int32 SteamChannel;
@@ -45,16 +48,15 @@ PACKAGE_SCOPE:
 
 public:
 	/**
-	 * Creates a Steam socket
+	 * Assigns a Windows socket to this object
 	 *
 	 * @param InSocket the socket to assign to this object
 	 * @param InSocketType the type of socket that was created
 	 * @param InSocketDescription the debug description of the socket
-	 * @param InSocketProtocol the protocol used to create this socket.
 	 */
-	FSocketSteam(ISteamNetworking* InSteamNetworkingPtr, const FUniqueNetIdSteam& InLocalSteamId, const FString& InSocketDescription, const FName& InSocketProtocol) :
-		FSocket(SOCKTYPE_Datagram, InSocketDescription, InSocketProtocol),
-		LocalSteamId(InLocalSteamId.AsShared()),
+	FSocketSteam(ISteamNetworking* InSteamNetworkingPtr, FUniqueNetIdSteam& InLocalSteamId, const FString& InSocketDescription) :
+		FSocket(SOCKTYPE_Datagram, InSocketDescription),
+		LocalSteamId(InLocalSteamId),
 		SteamChannel(0),
 		SteamSendMode(k_EP2PSendUnreliable),
 		SteamNetworkingPtr(InSteamNetworkingPtr)
@@ -75,7 +77,7 @@ public:
 	 *
 	 * @param true if it closes without errors, false otherwise
 	 */
-	virtual bool Close() override final;
+	virtual bool Close() override;
 
 	/**
 	 * Binds a socket to a network byte ordered address
@@ -212,24 +214,13 @@ public:
 	 */
 	virtual bool SetBroadcast(bool bAllowBroadcast = true) override;
 
-	virtual bool SetNoDelay(bool bIsNoDelay = true) override
-	{
-		return true;
-	}
+	virtual bool JoinMulticastGroup (const FInternetAddr& GroupAddress) override;
 
-	virtual bool JoinMulticastGroup(const FInternetAddr& GroupAddress) override;
+	virtual bool LeaveMulticastGroup (const FInternetAddr& GroupAddress) override;
 
-	virtual bool LeaveMulticastGroup(const FInternetAddr& GroupAddress) override;
+	virtual bool SetMulticastLoopback (bool bLoopback) override;
 
-	virtual bool JoinMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress) override;
-
-	virtual bool LeaveMulticastGroup(const FInternetAddr& GroupAddress, const FInternetAddr& InterfaceAddress) override;
-
-	virtual bool SetMulticastLoopback(bool bLoopback) override;
-
-	virtual bool SetMulticastTtl(uint8 TimeToLive) override;
-
-	virtual bool SetMulticastInterface(const FInternetAddr& InterfaceAddress) override;
+	virtual bool SetMulticastTtl (uint8 TimeToLive) override;
 
 	/**
 	 * Sets whether a socket can be bound to an address in use

@@ -1,12 +1,18 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
+#include "CoreMinimal.h"
+#include "UObject/CoreOnline.h"
+#include "OnlineSubsystemTypes.h"
+#include "OnlineSubsystemSteamPrivate.h"
+#include "OnlineSubsystemSteamTypes.h"
 #include "OnlineAsyncTaskManager.h"
 #include "Interfaces/OnlineFriendsInterface.h"
 #include "Interfaces/OnlinePresenceInterface.h"
 #include "OnlineSubsystemSteamPackage.h"
-#include "OnlineSubsystemSteamPrivate.h" // IWYU pragma: keep
+#include "UObject/StrongObjectPtr.h"
+
 class FOnlineSubsystemSteam;
 
 /**
@@ -19,7 +25,7 @@ public:
 
 	// FOnlineUser
 
-	virtual FUniqueNetIdRef GetUserId() const override;
+	virtual TSharedRef<const FUniqueNetId> GetUserId() const override;
 	virtual FString GetRealName() const override;
 	virtual FString GetDisplayName(const FString& Platform = FString()) const override;
 	virtual bool GetUserAttribute(const FString& AttrName, FString& OutAttrValue) const override;
@@ -59,7 +65,7 @@ public:
 	}
 
 	/** User Id represented as a FUniqueNetId */
-	FUniqueNetIdRef UserId;
+	TSharedRef<const FUniqueNetId> UserId;
 	/** Any addition account data associated with the friend */
 	TMap<FString, FString> AccountData;
 	/** @temp presence info */
@@ -88,9 +94,16 @@ class FOnlineFriendsSteam :
 
 	friend class FOnlineAsyncTaskSteamReadFriendsList;
 
+	FCriticalSection CachedAvatarsLock;
+
+	TMap<const FUniqueNetIdSteam, TPair<const TStrongObjectPtr<UTexture2D>, double>> CachedAvatars;
+	TMap<const FUniqueNetIdSteam, EFriendsLists::PlayerAvatarSize> CachedAvatarsInFlight;
+
 PACKAGE_SCOPE:
 
 	FOnlineFriendsSteam();
+
+	void CachePlayerAvatar(const FUniqueNetId& UserId);
 
 public:
 
@@ -110,9 +123,7 @@ public:
 	virtual bool SendInvite(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName,  const FOnSendInviteComplete& Delegate = FOnSendInviteComplete()) override;
 	virtual bool AcceptInvite(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName, const FOnAcceptInviteComplete& Delegate = FOnAcceptInviteComplete()) override;
  	virtual bool RejectInvite(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName) override;
-	virtual void SetFriendAlias(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName, const FString& Alias, const FOnSetFriendAliasComplete& Delegate = FOnSetFriendAliasComplete()) override;
-	virtual void DeleteFriendAlias(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName, const FOnDeleteFriendAliasComplete& Delegate = FOnDeleteFriendAliasComplete()) override;
-	virtual bool DeleteFriend(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName) override;
+ 	virtual bool DeleteFriend(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName) override;
 	virtual bool GetFriendsList(int32 LocalUserNum, const FString& ListName, TArray< TSharedRef<FOnlineFriend> >& OutFriends) override;
 	virtual TSharedPtr<FOnlineFriend> GetFriend(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName) override;
 	virtual bool IsFriend(int32 LocalUserNum, const FUniqueNetId& FriendId, const FString& ListName) override;
@@ -124,6 +135,8 @@ public:
 	virtual bool QueryBlockedPlayers(const FUniqueNetId& UserId) override;
 	virtual bool GetBlockedPlayers(const FUniqueNetId& UserId, TArray< TSharedRef<FOnlineBlockedPlayer> >& OutBlockedPlayers) override;
 	virtual void DumpBlockedPlayers() const override;
+	virtual void ShowInviteFriendsDialog(const FUniqueNetId& LobbyId) override;
+	virtual UTexture2D* GetFriendAvatar(const FUniqueNetId& UserId, EFriendsLists::PlayerAvatarSize AvatarSize = EFriendsLists::PlayerAvatarSize::Avatar_Medium) override;
 };
 
 typedef TSharedPtr<FOnlineFriendsSteam, ESPMode::ThreadSafe> FOnlineFriendsSteamPtr;

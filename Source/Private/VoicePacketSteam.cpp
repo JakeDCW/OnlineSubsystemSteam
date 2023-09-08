@@ -1,9 +1,8 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright 1998-2018 Epic Games, Inc. All Rights Reserved.
 
 #include "VoicePacketSteam.h"
 #include "OnlineSubsystemSteamTypes.h"
 
-PRAGMA_DISABLE_DEPRECATION_WARNINGS
 FVoicePacketSteam::FVoicePacketSteam(const FVoicePacketSteam& Other) :
 	FVoicePacket(Other)
 {
@@ -26,7 +25,7 @@ uint16 FVoicePacketSteam::GetBufferSize()
 	return Length;
 }
 
-FUniqueNetIdPtr FVoicePacketSteam::GetSender()
+TSharedPtr<const FUniqueNetId> FVoicePacketSteam::GetSender()
 {
 	return Sender;
 }
@@ -38,7 +37,7 @@ void FVoicePacketSteam::Serialize(class FArchive& Ar)
 	{
 		uint64 SenderUID;
 		Ar << SenderUID;
-		Sender = FUniqueNetIdSteam::Create(SenderUID);
+		Sender = MakeShareable(new FUniqueNetIdSteam(SenderUID));
 		Ar << Length;
 		// Verify the packet is a valid size
 		if (Length <= MAX_VOICE_DATA_SIZE)
@@ -61,4 +60,6 @@ void FVoicePacketSteam::Serialize(class FArchive& Ar)
 		Ar.Serialize(Buffer.GetData(), Length);
 	}
 }
-PRAGMA_ENABLE_DEPRECATION_WARNINGS
+
+
+
